@@ -1,0 +1,54 @@
+# 雙核心照片品質評估系統 —— 依賴清單
+#
+# 版本取自 2026-09-05 實際運作中的環境（Python 3.10.11 / Windows 11），
+# 不是估計值。安裝：
+#     pip install -r requirements.txt
+#
+# 注意 torch / torchvision 帶有 +cu128 的 CUDA 版本標記，
+# 一般的 PyPI 索引沒有這些版本，必須指定 PyTorch 官方索引：
+#     pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 \
+#         --index-url https://download.pytorch.org/whl/cu128
+#
+# 安裝完可執行 `python check_env.py` 驗證，它會逐項檢查並回報缺什麼。
+
+# ── 推論核心（缺任一項就無法評分）─────────────────────
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+numpy==2.2.6
+Pillow==11.0.0
+opencv-python==4.13.0
+
+# ── 訓練用（只跑推論可以不裝）─────────────────────────
+pandas==2.3.3
+scipy==1.15.3
+
+# ── 選用功能 ──────────────────────────────────────────
+# rawpy：讀取 .ARW / .DNG 等 RAW 檔。
+#   沒有它一樣能評分 JPG/PNG（ai_inference.py 採延遲匯入），
+#   但遇到 RAW 檔會明確報錯而非靜默失敗。
+rawpy==0.27.1
+
+# PyQt6：桌面前台 arw_viewer_gui.py。
+#   模型推論完全不需要它。
+PyQt6
+
+# ── 關於 CUDA 版本 ────────────────────────────────────
+# 這裡鎖定 cu128 是有原因的，不能隨意改回較舊的版本。
+#
+# 本專案使用的 RTX 5070 Ti 是 sm_120 架構。先前安裝的 torch 2.5.1+cu121
+# 只編譯到 sm_90，torch.cuda.is_available() 會回 True，但任何實際運算都會拋
+#     CUDA error: no kernel image is available for execution on the device
+# 導致 GPU 完全無法使用（ai_inference.py 會偵測並自動降級 CPU，程式不會壞）。
+#
+# 換成 cu128 後 torch.cuda.get_arch_list() 包含 sm_120，GPU 正常運作。
+# 升級前後以同一組權重在同一批照片上實測，CPU 結果完全相同
+# （AUC 0.9791 / PLCC 0.8315 / SRCC 0.7953），確認版本升級不改變模型行為。
+#
+# 實測訓練速度（美感模型 5,600 張、batch 32、30 epoch）：
+#     CPU  每批 1,192 ms   全程約 104 分鐘
+#     GPU  每批   102 ms   全程約   9 分鐘     ← 快 11.7 倍
+# GPU 上有 75% 的時間花在資料載入（JPEG 解碼與資料增強都在 CPU），
+# 實際 GPU 運算只佔 25%，因此再往上加速的空間有限。
+#
+# 另外：升級時 pip 會警告 torchaudio 2.5.1+cu121 與新版 torch 不相容。
+# 本專案完全沒有使用 torchaudio（全專案 0 處引用），可以忽略。

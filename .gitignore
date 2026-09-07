@@ -1,0 +1,46 @@
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── 模型權重 ──────────────────────────────────────────
+# 每個約 8.7 MB，且是訓練產物而非原始碼。
+# 交付時另外提供，或改用 Git LFS。
+*.pth
+
+# ── 資料集 ────────────────────────────────────────────
+# data/dataset  約 7,000 張 AVA 圖片
+# data/koniq    約 10,373 張 KonIQ-10k 圖片
+# data/my_photos 個人照片，含 RAW 檔（單檔約 47 MB）
+# 這些都不該進版本控管。
+#
+# 注意這裡寫 data/* 而不是 data/：
+#   用 data/ 排除整個「目錄」時，git 不會再進去掃，
+#   底下的 !data/train.csv 例外規則就永遠不會生效，
+#   要保留的標註 CSV 會一起被忽略。
+#   改成 data/* 排除「目錄內容」，例外規則才有作用。
+data/*
+
+# 保留標註 CSV —— 它們是重現實驗所必需，且體積很小（合計約 380 KB）。
+!data/train.csv
+!data/val.csv
+!data/train_tech.csv
+!data/val_tech.csv
+
+# ── 歸檔的舊程式碼 ────────────────────────────────────
+# _archive/ 內含已停用的舊版腳本，其中 score.py 與 training_labels.csv
+# 帶有個人磁碟路徑（F:\暫存\0223\...），不應外流。
+_archive/
+
+# ── 編輯器與作業系統 ──────────────────────────────────
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# ── Claude Code 個人設定 ──────────────────────────────
+# settings.local.json 是每台機器各自的權限白名單，不該共用。
+.claude/settings.local.json
