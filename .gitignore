@@ -25,6 +25,7 @@ env/
 data/*
 
 # 保留標註 CSV —— 它們是重現實驗所必需，且體積很小（合計約 380 KB）。
+!data/train_full.csv
 !data/train.csv
 !data/val.csv
 !data/train_tech.csv

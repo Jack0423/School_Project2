@@ -107,7 +107,7 @@ def verify_against_existing(df):
     這是這支腳本最重要的一步——若一致率不高，代表門檻或資料對應有問題。
     """
     if not (os.path.exists(EXISTING_TRAIN) and os.path.exists(EXISTING_VAL)):
-        print('⚠️ 找不到現有的 train.csv / val.csv，略過驗證。')
+        print('[WARN] 找不到現有的 train.csv / val.csv，略過驗證。')
         return None
 
     old = pd.concat([pd.read_csv(EXISTING_TRAIN), pd.read_csv(EXISTING_VAL)])
@@ -115,13 +115,13 @@ def verify_against_existing(df):
     merged = old[['image', 'label']].merge(df[['image', 'label']], on='image',
                                            suffixes=('_old', '_new'))
     if merged.empty:
-        print('⚠️ 現有標籤與重建結果沒有交集，無法驗證。')
+        print('[WARN] 現有標籤與重建結果沒有交集，無法驗證。')
         return None
 
     agree = (merged['label_old'] == merged['label_new']).mean()
     print(f'  與現有標籤比對：{len(merged)} 張，一致率 {agree:.2%}')
     if agree < 0.95:
-        print(f'  ⚠️ 一致率偏低。門檻 {BINARY_THRESHOLD} 可能不正確，'
+        print(f'  [WARN] 一致率偏低。門檻 {BINARY_THRESHOLD} 可能不正確，'
               f'或影像編號與 AVA 的對應有誤，請先釐清再使用輸出結果。')
     return agree
 
@@ -165,7 +165,7 @@ def main():
     outputs = [OUT_FULL, OUT_TRAIN, OUT_VAL]
     existing = [p for p in outputs if os.path.exists(p)]
     if existing and not args.force:
-        print(f'⛔ 以下輸出檔已存在：{", ".join(existing)}')
+        print(f'[FAIL] 以下輸出檔已存在：{", ".join(existing)}')
         print(f'   為避免覆蓋，已中止。確定要重新產生請加上 --force。')
         return 1
 
@@ -182,7 +182,7 @@ def main():
     print(f'  在評分紀錄中找到 {len(df):,} 張（覆蓋率 {coverage:.1%}）')
     if coverage < 1.0:
         missing = sorted(set(image_ids) - set(df['image']))
-        print(f'  ⚠️ 有 {len(missing)} 張找不到評分，將不會出現在輸出中。'
+        print(f'  [WARN] 有 {len(missing)} 張找不到評分，將不會出現在輸出中。'
               f'前幾個編號：{missing[:5]}')
 
     print('驗證重建結果 ...')
@@ -195,7 +195,7 @@ def main():
     val_df.to_csv(OUT_VAL, index=False)
 
     print()
-    print(f'✅ 完成')
+    print(f'[ OK ] 完成')
     print(f'  {OUT_FULL:<22} {len(df):>5} 張'
           f'（label=1: {int(df["label"].sum())}，label=0: {int((df["label"] == 0).sum())}）')
     print(f'  {OUT_TRAIN:<22} {len(train_df):>5} 張')

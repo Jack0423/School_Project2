@@ -89,6 +89,25 @@ PROTECTED_KEYWORDS = ('file_name', 'filename', 'file_path', 'filepath',
 PROTECTED_EXACT = ('id', 'rowid', 'pk')
 
 
+def _quote(identifier):
+    """
+    把資料表／欄位名包成 SQLite 的引號識別字。
+
+    為什麼需要：SET 子句原本是 f'{c} = NULL' 直接拼字串，欄位名只要含空白
+    或特殊字元（例如 "aesthetic score"）就會變成語法錯誤：
+        sqlite3.OperationalError: near "score": syntax error
+    實測會在 --apply 時崩潰——備份已經做完、UPDATE 還沒送出，所以資料不會壞，
+    但使用者看到的是一串 traceback 而不是結果。
+
+    這不是 SQL injection 防護：--table 與 --columns 的輸入在更早之前
+    就已經比對過實際 schema，對不上直接中止，外部字串進不到 SQL 裡。
+    這裡純粹是「識別字必須引號化」這條 SQL 基本規則。
+
+    識別字內部的雙引號以連續兩個雙引號跳脫，與 SQLite 的規則一致。
+    """
+    return '"' + identifier.replace('"', '""') + '"'
+
+
 def _matches(column, keywords):
     low = column.lower()
     return any(k.lower() in low for k in keywords)
@@ -133,8 +152,8 @@ def main():
             print('       請用 --table 指定正確的資料表名稱。')
             return 1
 
-        columns = [r['name'] for r in con.execute(f'PRAGMA table_info({args.table})')]
-        total = con.execute(f'SELECT COUNT(*) FROM {args.table}').fetchone()[0]
+        columns = [r['name'] for r in con.execute(f'PRAGMA table_info({_quote(args.table)})')]
+        total = con.execute(f'SELECT COUNT(*) FROM {_quote(args.table)}').fetchone()[0]
 
         if args.columns:
             scores = [c.strip() for c in args.columns.split(',') if c.strip()]
@@ -156,7 +175,7 @@ def main():
         print(f'  受保護、不會動的欄位 ({len(protected)})     : {protected or "（無）"}')
         print(f'  未歸類、不會動的欄位 ({len(untouched)})     : {untouched or "（無）"}')
         print()
-        print('  ⚠ 請人工核對上面四行。自動比對是靠欄位名稱的關鍵字，')
+        print('  [WARN] 請人工核對上面四行。自動比對是靠欄位名稱的關鍵字，')
         print('    命名習慣不同就可能漏抓或誤抓。有疑慮請改用 --columns 明確指定。')
         print()
 
@@ -182,8 +201,9 @@ def main():
         shutil.copy2(db_path, backup)
         print(f'[ OK ] 已備份原始資料庫：{backup.name}')
 
-        sets = [f'{c} = NULL' for c in scores] + [f'{c} = 0' for c in flags]
-        sql = f'UPDATE {args.table} SET ' + ', '.join(sets)
+        sets = ([f'{_quote(c)} = NULL' for c in scores]
+                + [f'{_quote(c)} = 0' for c in flags])
+        sql = f'UPDATE {_quote(args.table)} SET ' + ', '.join(sets)
         cur = con.execute(sql)
         con.commit()
         print(f'[ OK ] 已清除 {cur.rowcount} 筆照片的分析結果。')

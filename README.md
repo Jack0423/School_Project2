@@ -86,6 +86,7 @@ data/
 │   └── koniq10k_distributions_sets.csv
 ├── ava/
 │   └── ground_truth_dataset.csv   AVA 原始評分分佈
+├── train_full.csv                   美感完整標籤（split_data.py 的來源）
 ├── train.csv / val.csv              美感（二元標籤）
 ├── train_tech.csv / val_tech.csv    技術（KonIQ MOS）
 └── my_photos/               自己的測試照片（含 RAW）
@@ -129,7 +130,8 @@ python arw_viewer_gui.py
 ```
 
 PyQt6 影像檢視器，載入照片並顯示評分結果。AI 模組載入失敗時會關閉評分功能
-但程式仍可正常瀏覽照片。目前測試檔路徑寫死在 `__main__` 內。
+但程式仍可正常瀏覽照片。目前測試檔路徑寫死在 `__main__` 內，
+且只對 `.arw` 做 RAW 分流（`.dng` 會被 PIL 讀成內嵌縮圖）——這支檔案由前台負責人維護。
 
 ### 訓練
 
@@ -166,11 +168,17 @@ python compare_aesthetic_models.py --val-csv data/ava_val.csv
 ```bash
 python build_ava_labels.py    # 從 AVA 原始評分分佈重建完整標籤（含 1–10 級分佈）
 python split_koniq.py         # 切分 KonIQ → train_tech.csv / val_tech.csv
-python split_data.py          # 切分 data/train.csv（⚠ 就地覆寫，見下）
+python split_data.py          # 切分 data/train_full.csv → train.csv / val.csv
 ```
 
-`split_data.py` 的來源與目的地是同一個檔案，重複執行會每次再砍掉 20% 且無任何錯誤訊息
-（3920 → 3136 → 2508 …）。已加保護：偵測到 `data/val.csv` 存在就中止，需 `--force` 才會重切。
+`split_data.py` 原本讀 `data/train.csv` 又寫回同一個檔，重複執行會每次再砍掉 20%
+且無任何錯誤訊息（3920 → 3136 → 2508 …）。2026-09-14 改成與 `split_koniq.py` 相同的結構：
+來源 `data/train_full.csv` 只讀、輸出 `train.csv` / `val.csv` 只寫，腳本並會主動比對
+來源與輸出是否指向同一個檔。重跑現在完全安全（同一來源、同一亂數種子，結果每次相同）。
+
+`data/train_full.csv`（4,900 筆）是把現有的 train/val 合併重建出來的——原始檔已被舊版
+就地覆寫吃掉列順序，因此**重切不會重現現有的分配**。現有的 `train.csv` / `val.csv` 才是與
+`nima_best.pth` 對應的那一份，輸出已存在時需 `--force` 才會覆蓋。
 
 ### 資料庫維護
 
@@ -234,4 +242,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
+目前共 109 個測試。
 細節見 [tests/README.md](tests/README.md)。

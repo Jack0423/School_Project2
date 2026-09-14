@@ -103,55 +103,98 @@ class TestWeightPathIsIndependentOfCwd(unittest.TestCase):
         self.assertIn(str(PROJECT_ROOT), result.stdout)
 
 
-class TestSplitDataRerunGuard(unittest.TestCase):
+class TestSplitDataNeverWritesItsSource(unittest.TestCase):
     """
-    B20：split_data.py 讀取 data/train.csv 又覆寫同一個檔案，
-    重複執行會每次少掉 20%，且驗證集被覆蓋、永久消失，全程沒有錯誤訊息。
+    B20：split_data.py 原本讀 data/train.csv 又「寫回同一個檔」，
+    重複執行會每次再砍掉 20%、驗證集被覆蓋，全程沒有任何錯誤訊息
+    （3920 -> 3136 -> 2508 ...）。
+
+    2026-09-14 把來源與輸出分離（改成與 split_koniq.py 相同的結構）之後，
+    這裡守的不變量比原本更強：
+
+        舊：重複執行要被擋下      —— 只擋誤觸，設計本身仍然危險
+        新：來源檔永遠不被寫入    —— 資料流失在結構上就不可能發生
+
+    關鍵的那一項是 test_force_rerun_is_idempotent：舊設計下加了 --force
+    重跑會從 80 筆變成 64 筆，新設計下必須每次都切出完全一樣的結果。
     """
+
+    ROWS = 100
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.sandbox = Path(self.tmp.name)
         shutil.copy(PROJECT_ROOT / 'split_data.py', self.sandbox)
         (self.sandbox / 'data').mkdir()
-        rows = ['index,image,label'] + [f'{i},{1000 + i},{i % 2}' for i in range(100)]
-        (self.sandbox / 'data' / 'train.csv').write_text('\n'.join(rows), encoding='utf-8')
+        rows = ['index,image,label'] + [f'{i},{1000 + i},{i % 2}' for i in range(self.ROWS)]
+        self.source = self.sandbox / 'data' / 'train_full.csv'
+        self.source.write_text('\n'.join(rows), encoding='utf-8')
+        self.source_bytes = self.source.read_bytes()
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _train_rows(self):
-        text = (self.sandbox / 'data' / 'train.csv').read_text(encoding='utf-8')
+    def _rows(self, name):
+        text = (self.sandbox / 'data' / name).read_text(encoding='utf-8')
         return len([l for l in text.splitlines() if l.strip()]) - 1
+
+    def _out_bytes(self):
+        return ((self.sandbox / 'data' / 'train.csv').read_bytes(),
+                (self.sandbox / 'data' / 'val.csv').read_bytes())
 
     def test_first_run_splits_normally(self):
         result = _run(self.sandbox / 'split_data.py', self.sandbox)
         self.assertEqual(result.returncode, 0, result.stderr[-500:])
-        self.assertEqual(self._train_rows(), 80)
+        self.assertEqual(self._rows('train.csv'), 80)
+        self.assertEqual(self._rows('val.csv'), 20)
 
-    def test_second_run_is_blocked(self):
+    def test_source_file_is_never_modified(self):
+        """最重要的一項：來源檔跑完之後必須一個位元組都沒變。"""
         _run(self.sandbox / 'split_data.py', self.sandbox)
-        before = self._train_rows()
+        _run(self.sandbox / 'split_data.py', self.sandbox, args=('--force',))
+        self.assertEqual(self.source.read_bytes(), self.source_bytes,
+                         '來源檔被寫入了——這正是原本會吃掉 20% 資料的那個 bug')
+
+    def test_rerun_is_blocked_by_default(self):
+        _run(self.sandbox / 'split_data.py', self.sandbox)
+        before = (self._rows('train.csv'), self._rows('val.csv'))
 
         result = _run(self.sandbox / 'split_data.py', self.sandbox)
 
         self.assertEqual(result.returncode, 1, '重複執行未被擋下')
-        self.assertEqual(self._train_rows(), before,
-                         '重複執行被擋下了，但資料仍被改動')
-
-    def test_blocked_message_states_the_consequence(self):
-        _run(self.sandbox / 'split_data.py', self.sandbox)
-        result = _run(self.sandbox / 'split_data.py', self.sandbox)
+        self.assertEqual((self._rows('train.csv'), self._rows('val.csv')), before,
+                         '重複執行被擋下了，但輸出仍被改動')
         self.assertIn('--force', result.stdout,
                       '應告訴使用者如何在確認後強制執行')
-        self.assertIn('64', result.stdout,
-                      '應具體說明再跑一次會剩下幾筆（80 -> 64）')
 
-    def test_force_flag_still_works(self):
+    def test_force_rerun_is_idempotent(self):
+        """
+        舊設計下這裡會是 80 -> 64（每次再砍 20%）。
+        來源與輸出分離之後，同一個來源加同一個亂數種子必須切出完全相同的結果。
+        """
         _run(self.sandbox / 'split_data.py', self.sandbox)
+        first = self._out_bytes()
+
         result = _run(self.sandbox / 'split_data.py', self.sandbox, args=('--force',))
+
         self.assertEqual(result.returncode, 0, result.stderr[-500:])
-        self.assertEqual(self._train_rows(), 64)
+        self.assertEqual(self._rows('train.csv'), 80, '重跑後資料變少了')
+        self.assertEqual(self._out_bytes(), first,
+                         '同一個來源重跑應產生完全相同的切分')
+
+    def test_refuses_when_an_output_is_the_source_itself(self):
+        """就算使用者自己把輸出指回來源，也必須擋下來。"""
+        result = _run(self.sandbox / 'split_data.py', self.sandbox,
+                      args=('--train-out', 'data/train_full.csv', '--force'))
+        self.assertEqual(result.returncode, 1, '輸出指回來源竟然被允許')
+        self.assertEqual(self.source.read_bytes(), self.source_bytes,
+                         '被擋下了，但來源檔仍被改動')
+
+    def test_missing_source_explains_how_to_build_it(self):
+        self.source.unlink()
+        result = _run(self.sandbox / 'split_data.py', self.sandbox)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('train_full.csv', result.stdout, '應指出缺少哪個來源檔')
 
 
 if __name__ == '__main__':

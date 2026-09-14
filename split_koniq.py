@@ -5,7 +5,7 @@ import os
 csv_path = 'data/koniq/koniq10k_distributions_sets.csv' 
 
 if not os.path.exists(csv_path):
-    print(f"❌ 找不到檔案：{csv_path}")
+    print(f"[FAIL] 找不到檔案：{csv_path}")
     print("請確認你已經把 CSV 檔搬到 data/koniq/ 資料夾底下了！")
 else:
     # 2. 讀取與處理
@@ -29,5 +29,5 @@ else:
     train_df.to_csv('data/train_tech.csv', index=False)
     val_df.to_csv('data/val_tech.csv', index=False)
 
-    print(f"✅ 技術資料集切分完成！")
-    print(f"📂 已產生：data/train_tech.csv 與 data/val_tech.csv")
+    print(f"[ OK ] 技術資料集切分完成！")
+    print(f"[ OK ] 已產生：data/train_tech.csv 與 data/val_tech.csv")

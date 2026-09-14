@@ -26,7 +26,8 @@ python -m unittest tests.test_evaluate_photo -v
 | `test_image_loading.py` | RAW 檔依副檔名分流給 rawpy，不可讓 PIL 讀到內嵌縮圖（B1、B2）；`image=` 參數的格式驗證 |
 | `test_evaluate_photo.py` | 回傳格式合約（前台依賴）；分數必須落在 0–100（A5）；失敗原因要能分辨根因（A4）；狀態只由技術分決定、量測結果不參與（丙案） |
 | `test_technical_analysis.py` | 分析不可自己從硬碟讀檔（B3）；小於分析寬度的影像不可被放大（B19）；雜訊必須在原始解析度上估計（B11） |
-| `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` 重複執行要被擋下（B20） |
+| `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20） |
+| `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
 
 ## 設計上的兩個取捨
 
@@ -38,6 +39,18 @@ python -m unittest tests.test_evaluate_photo -v
 **盡量用合成影像。**
 `_util.make_image()` 能精確控制要測的性質（銳利／模糊／過曝／死黑／雜訊），
 測試因此不依賴任何被 gitignore 的資料，也不會因為換了照片就飄。
+
+## 2026-09-14 的兩處更動
+
+**B20 的測試換成更強的不變量。** 原本測的是「重複執行要被擋下」——那只擋得住誤觸，
+設計本身（讀寫同一個檔）沒有改。`split_data.py` 改成來源與輸出分離之後，
+測的變成「來源檔一個位元組都不能變」與「加 `--force` 重跑必須產生完全相同的切分」。
+後面這一項在舊設計下會從 80 筆變成 64 筆，是最能直接抓住原缺陷的斷言。
+
+**新增 `test_console_encoding.py`。** 這是稽核當時漏掉的一類問題：
+推論那條線已經全面改用純文字標籤，但訓練與資料切分腳本仍留著 emoji，
+輸出一被重導向就崩在保護訊息上。靜態檢查涵蓋所有原始碼，
+另有一組動態測試實際以 `PYTHONIOENCODING=cp950` 跑過各腳本的 `--help` 與保護路徑。
 
 ## 這份測試自己驗證過
 

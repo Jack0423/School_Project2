@@ -72,7 +72,7 @@ def main():
 
     df = pd.read_csv(args.val_csv)
     if 'mean_score' not in df.columns:
-        print(f'⛔ {args.val_csv} 沒有 mean_score 欄位。')
+        print(f'[FAIL] {args.val_csv} 沒有 mean_score 欄位。')
         print('   需要含 AVA 群眾平均評分的驗證集才能做公平比較，')
         print('   請先執行 python build_ava_labels.py 產生 data/ava_val.csv。')
         return 1

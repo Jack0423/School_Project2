@@ -387,7 +387,7 @@ def _analyze_technical_issues(image):
     # 1. 模糊/失焦/手震：Laplacian 變異數越低代表邊緣銳利度越差
     blur_var = cv2.Laplacian(gray, cv2.CV_64F).var()
     if blur_var < BLUR_VAR_THRESHOLD:
-        issues.append(f"疑似對焦不準或手震導致畫面模糊（清晰度指標 {blur_var:.1f}，建議 ≥ {BLUR_VAR_THRESHOLD:.0f}）")
+        issues.append(f"疑似對焦不準或手震導致畫面模糊（清晰度指標 {blur_var:.1f}，建議 >= {BLUR_VAR_THRESHOLD:.0f}）")
 
     # 2. 曝光：統計死白／死黑像素比例
     total_pixels = gray.size
@@ -570,7 +570,7 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
             都遠高於模型推論本身的 22.7 ms。
             不傳（預設 None）時本函式會自行依副檔名讀檔，行為與過去相同。
 
-            ⚠ 通道順序必須是 RGB，不是 OpenCV 慣用的 BGR。
+            [注意] 通道順序必須是 RGB，不是 OpenCV 慣用的 BGR。
               形狀與 dtype 會被檢查，但 RGB 與 BGR 的形狀、dtype 完全相同，
               程式無法分辨——傳錯只會安靜地算出錯誤分數，不會報錯。
               用 cv2.imread() 取得的影像必須先經
@@ -585,7 +585,7 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
             走這條路徑即可，例如 evaluate_photo(p, aesthetic_weight=0.8)。
             兩個都傳時必須加總為 1，否則本函式回傳 None 並記錄原因。
 
-            ⚠ 權重只影響 overall_score。aesthetic_score 與 technical_score 是
+            [注意] 權重只影響 overall_score。aesthetic_score 與 technical_score 是
               模型的原始輸出，不受權重影響；status（優秀／正常／警告）也不受影響
               ——狀態只由技術分決定、「優秀」只由美感分決定。
               也就是說調整滑桿會改變照片的「排序」與「最佳照片」是哪一張，

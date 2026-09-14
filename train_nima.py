@@ -123,18 +123,18 @@ def main():
 
     # 權重檔是訓練數小時的產物，覆寫掉就沒了，因此預設拒絕覆蓋。
     if os.path.exists(SAVE_PATH) and not args.force:
-        print(f"⛔ 權重檔已存在：{SAVE_PATH}")
+        print(f"[FAIL] 權重檔已存在：{SAVE_PATH}")
         print(f"   訓練會覆蓋它且無法復原。請改用 --save 指定其他檔名，"
               f"或確認後加上 --force。")
         return 1
 
-    print(f"📋 模式={OUTPUT_MODE}  訓練集={args.train_csv}  驗證集={args.val_csv}")
+    print(f"[INFO] 模式={OUTPUT_MODE}  訓練集={args.train_csv}  驗證集={args.val_csv}")
     print(f"   輸出={SAVE_PATH}  epochs={EPOCHS}  batch={BATCH_SIZE}")
 
     # 硬體設定
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
-    print(f"✅ 設備確認: {device_name}")
+    print(f"[ OK ] 設備確認: {device_name}")
 
     # pin_memory 只在有 GPU 時才有意義
     pin_memory = torch.cuda.is_available()
@@ -167,7 +167,7 @@ def main():
     criterion = emd_loss if OUTPUT_MODE == 'distribution' else nn.MSELoss()
 
     # ── 訓練迴圈 ────────────────────────────────
-    print("🚀 開始訓練...\n")
+    print("[INFO] 開始訓練...\n")
     # 模型選擇改用 PLCC+SRCC（越高越好），比單看 MSE 更貼近人類評分排序
     best_val_metric  = -float('inf')
     patience_counter = 0
@@ -191,19 +191,19 @@ def main():
             best_val_metric  = val_metric
             patience_counter = 0
             torch.save(model.state_dict(), SAVE_PATH)
-            print(f"  💾 PLCC/SRCC 改善，模型已存至 {SAVE_PATH}")
+            print(f"  [ OK ] PLCC/SRCC 改善，模型已存至 {SAVE_PATH}")
         else:
             patience_counter += 1
-            print(f"  ⏳ 未改善 ({patience_counter}/{PATIENCE})")
+            print(f"  [INFO] 未改善 ({patience_counter}/{PATIENCE})")
 
         # Early Stopping：先判斷再 step，確保 break 時 scheduler 不多走一步
         if patience_counter >= PATIENCE:
-            print(f"\n🛑 Early Stopping 觸發（連續 {PATIENCE} 個 epoch 未改善）")
+            print(f"\n[INFO] Early Stopping 觸發（連續 {PATIENCE} 個 epoch 未改善）")
             break
 
         scheduler.step()
 
-    print(f"\n🎉 訓練完成！最佳 PLCC/SRCC 平均: {best_val_metric:.4f}，權重儲存於 {SAVE_PATH}")
+    print(f"\n[ OK ] 訓練完成！最佳 PLCC/SRCC 平均: {best_val_metric:.4f}，權重儲存於 {SAVE_PATH}")
     return 0
 
 
