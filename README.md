@@ -117,7 +117,7 @@ result = evaluate_photo("path/to/photo.jpg")
 三個實用細節：
 
 - **已解碼的影像可直接傳入**：`evaluate_photo(p, image=arr)` 省下一次解碼
-  （RAW 全尺寸解碼約 700–1100 ms，遠高於推論本身的 22.7 ms）。
+  （RAW 全尺寸解碼約 700–1300 ms，遠高於推論本身：CPU 約 23–27 ms、GPU 約 16–20 ms）。
   ⚠ 通道順序必須是 **RGB**，傳入 BGR 不會報錯，只會安靜地算出錯誤分數。
 - **權重可調**：`evaluate_photo(p, aesthetic_weight=0.8)`，另一個自動補成 0.2。
 - **權重只影響 `overall_score`**：`status` 只由技術分決定、「優秀」只由美感分決定，
@@ -150,8 +150,15 @@ python train_tech.py --img-dir data/koniq/512x384 --save nima_tech_best.pth
 `train_nima.py` 的 `--mode` 決定損失函數：`single` 用 MSELoss，
 `distribution` 用 EMD loss（推土機距離，對 CDF 差值取 mean，與 NIMA 論文一致）。
 
-訓練速度實測（美感模型 5,600 張、batch 32、30 epoch）：CPU 約 104 分鐘，
-GPU 約 9 分鐘（快 11.7 倍）。GPU 上有 75% 時間花在資料載入（JPEG 解碼與增強都在 CPU）。
+訓練速度（美感模型 5,600 張、batch 32、RTX 5070 Ti）：2026-09-22 以 `benchmark_gpu.py` 量測兩次，
+`num_workers=0`（目前 Windows 上的設定）每批 267–285 ms，一個 epoch 約 47–50 秒；
+GPU 本身只需約 33–36 ms，**約 87% 的時間在等 CPU 解碼與做資料增強**。
+同一台機器上 `num_workers=8` 可降到每批 47–59 ms（一個 epoch 約 8–10 秒，約快 5 倍），訓練腳本尚未採用。
+
+> 舊版本這裡寫的「CPU 104 分鐘、GPU 9 分鐘、快 11.7 倍、每批 102 ms」是 2026-09-05 臨時量的，
+> 量測程式沒有保留，用現行程式碼也重現不出來，請不要再引用。
+> 資料載入是單執行緒 CPU 工作，受機器當下負載影響大：同一天用不同方式量了四次，
+> `num_workers=0` 落在 215–306 ms。要引用數字時請重跑 `benchmark_gpu.py`，並附上它輸出的硬體與版本。
 
 ### 評估與比較
 
@@ -162,6 +169,34 @@ python eval_models.py --save metrics.json
 ```bash
 python compare_aesthetic_models.py --val-csv data/ava_val.csv
 ```
+
+### 模型成效報表
+
+```bash
+python model_report.py            # 完整報表，約 1–2 分鐘
+python model_report.py --quick    # 每個驗證集只取前 300 張，確認流程用
+```
+
+把兩個模型在驗證集上的表現整理成 `summary.md`（表格）、`metrics.json`、逐張預測 CSV
+與 13 張圖表，輸出到 `reports/model_report/<時間>/`。內容包含 PLCC / SRCC / RMSE、
+預測 vs 真實散佈圖、各分數區間的偏差、「警告」與「優秀」判定的混淆矩陣與門檻掃描、
+美感模型的 EMD 與 ROC、新舊美感權重比較，以及影像量測細項
+（被標記模糊、過曝等的照片，人工評分是否真的比較低）。
+
+分數換算與門檻直接取自 `ai_inference.py`，不另寫一份，執行時並會抽樣與 `evaluate_photo()` 比對。
+混淆矩陣「真實答案」的切點（MOS 60、AVA 群眾平均 6）是自己定的，可用參數調整。
+
+### 效能量測
+
+```bash
+python benchmark_gpu.py           # 約 3–5 分鐘
+python benchmark_gpu.py --quick   # 約 1 分鐘，數字只用來確認流程
+```
+
+照課程投影片 4-3 的測速三守則（warm-up、計時前後 synchronize、重複 20 次取中位數與 IQR）量測：
+矩陣乘法 CPU vs GPU、兩個模型的推論延遲與批次吞吐、單張照片全流程的時間拆解、
+訓練單步的 batch size × FP32／混合精度、DataLoader 的 `num_workers`。
+只量時間，不改任何檔案；輸出到 `reports/benchmark/<時間>/`。
 
 ### 資料準備腳本
 
@@ -199,7 +234,9 @@ python reset_db_analysis.py <db路徑> --apply
 common/                 模型架構、前處理、訓練迴圈的唯一定義
 ├── model.py            NIMABaseline（MobileNetV2）+ emd_loss
 ├── transforms.py       build_transform（訓練/驗證/推論共用）
-└── engine.py           run_epoch
+├── engine.py           run_epoch
+├── metrics.py          混淆矩陣、ROC、相關係數、EMD 等指標（報表用）
+└── plotting.py         報表圖表的共用樣式（不從 common 匯出，避免推論依賴 matplotlib）
 
 ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + 綜合分
 arw_viewer_gui.py       PyQt6 桌面前台
@@ -209,6 +246,8 @@ train_nima.py           美感模型訓練（single / distribution 雙模式）
 train_tech.py           技術模型訓練
 eval_models.py          輸出客觀指標（PLCC/SRCC/AUC）
 compare_aesthetic_models.py  跨模式公平比較美感模型
+model_report.py         模型成效報表（混淆矩陣、門檻掃描、細項分析、圖表）
+benchmark_gpu.py        GPU / CPU 效能量測（測速三守則）
 
 build_ava_labels.py     重建 AVA 標籤
 split_data.py           切分美感資料
@@ -242,5 +281,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 109 個測試。
+目前共 126 個測試。
 細節見 [tests/README.md](tests/README.md)。

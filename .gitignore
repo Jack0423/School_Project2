@@ -31,6 +31,11 @@ data/*
 !data/train_tech.csv
 !data/val_tech.csv
 
+# ── 產生的報表 ────────────────────────────────────────
+# model_report.py 與 benchmark_gpu.py 的輸出（圖表、JSON、逐張預測 CSV）。
+# 隨時可以重跑產生，而且每次都帶時間戳記，不需要進版本控管。
+reports/
+
 # ── 歸檔的舊程式碼 ────────────────────────────────────
 # _archive/ 內含已停用的舊版腳本，其中 score.py 與 training_labels.csv
 # 帶有個人磁碟路徑（F:\暫存\0223\...），不應外流。

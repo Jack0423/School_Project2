@@ -28,6 +28,7 @@ python -m unittest tests.test_evaluate_photo -v
 | `test_technical_analysis.py` | 分析不可自己從硬碟讀檔（B3）；小於分析寬度的影像不可被放大（B19）；雜訊必須在原始解析度上估計（B11） |
 | `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20） |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
+| `test_metrics.py` | 報表指標（`common/metrics.py`）用手算得出答案的例子逐項驗證：同分樣本不可影響 AUC、沒有判定為正時 F1 是 0 而非 nan、報表的判定方向（`<` / `>`）必須與 `ai_inference.py` 相同。指標算錯不會報錯，只會把錯的數字寫進報告 |
 
 ## 設計上的兩個取捨
 

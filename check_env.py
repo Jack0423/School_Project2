@@ -228,6 +228,7 @@ def verify():
     print("\n--- 訓練用（只跑推論的話可以沒有）---")
     check_module("pandas", "pandas", required=False)
     check_module("scipy", "SciPy", required=False)
+    check_module("matplotlib", "matplotlib（報表圖表）", required=False)
 
     print("\n--- 選用功能 ---")
     check_rawpy()

@@ -22,6 +22,10 @@ opencv-python==4.13.0
 pandas==2.3.3
 scipy==1.15.3
 
+# ── 報表與效能量測的圖表（沒有它照樣會輸出數據與表格）──
+# model_report.py、benchmark_gpu.py 使用。推論完全不需要它。
+matplotlib==3.10.9
+
 # ── 選用功能 ──────────────────────────────────────────
 # rawpy：讀取 .ARW / .DNG 等 RAW 檔。
 #   沒有它一樣能評分 JPG/PNG（ai_inference.py 採延遲匯入），
