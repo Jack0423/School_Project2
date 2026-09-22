@@ -117,7 +117,7 @@ result = evaluate_photo("path/to/photo.jpg")
 三個實用細節：
 
 - **已解碼的影像可直接傳入**：`evaluate_photo(p, image=arr)` 省下一次解碼
-  （RAW 全尺寸解碼約 700–1300 ms，遠高於推論本身：CPU 約 23–27 ms、GPU 約 16–20 ms）。
+  （RAW 全尺寸解碼約 700–1100 ms，遠高於推論本身：CPU 約 21 ms、GPU 約 12 ms）。
   ⚠ 通道順序必須是 **RGB**，傳入 BGR 不會報錯，只會安靜地算出錯誤分數。
 - **權重可調**：`evaluate_photo(p, aesthetic_weight=0.8)`，另一個自動補成 0.2。
 - **權重只影響 `overall_score`**：`status` 只由技術分決定、「優秀」只由美感分決定，
@@ -150,15 +150,16 @@ python train_tech.py --img-dir data/koniq/512x384 --save nima_tech_best.pth
 `train_nima.py` 的 `--mode` 決定損失函數：`single` 用 MSELoss，
 `distribution` 用 EMD loss（推土機距離，對 CDF 差值取 mean，與 NIMA 論文一致）。
 
-訓練速度（美感模型 5,600 張、batch 32、RTX 5070 Ti）：2026-09-22 以 `benchmark_gpu.py` 量測兩次，
-`num_workers=0`（目前 Windows 上的設定）每批 267–285 ms，一個 epoch 約 47–50 秒；
-GPU 本身只需約 33–36 ms，**約 87% 的時間在等 CPU 解碼與做資料增強**。
-同一台機器上 `num_workers=8` 可降到每批 47–59 ms（一個 epoch 約 8–10 秒，約快 5 倍），訓練腳本尚未採用。
+訓練速度（美感模型 5,600 張、batch 32、RTX 5070 Ti / Ryzen 7 5800X）：2026-09-22 在電腦閒置時
+以 `benchmark_gpu.py` 量測，`num_workers=0`（目前 Windows 上的設定）每批 206 ms，一個 epoch 約 36 秒；
+GPU 本身只需約 33 ms，**約 84% 的時間在等 CPU 解碼與做資料增強**。
+同一台機器上 `num_workers=8` 可降到每批 40 ms（一個 epoch 約 7 秒，約快 5 倍），訓練腳本尚未採用。
 
 > 舊版本這裡寫的「CPU 104 分鐘、GPU 9 分鐘、快 11.7 倍、每批 102 ms」是 2026-09-05 臨時量的，
 > 量測程式沒有保留，用現行程式碼也重現不出來，請不要再引用。
-> 資料載入是單執行緒 CPU 工作，受機器當下負載影響大：同一天用不同方式量了四次，
-> `num_workers=0` 落在 215–306 ms。要引用數字時請重跑 `benchmark_gpu.py`，並附上它輸出的硬體與版本。
+> 資料載入是 CPU 工作，受機器當下負載影響很大：同一天電腦同時有其他工作時，
+> `num_workers=0` 量到 215–306 ms。要引用數字時請關掉其他程式重跑 `benchmark_gpu.py`，
+> 並附上它輸出的硬體與版本。
 
 ### 評估與比較
 
