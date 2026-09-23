@@ -197,6 +197,16 @@ UNDEREXPOSED_RATIO_THRESHOLD = 0.05  # 死黑像素比例
 #   換相機或換題材（大量樹葉、砂石等細碎紋理）時應重新校準。
 NOISE_SIGMA_THRESHOLD = 1.43
 
+# 分級門檻：超過這個值才說「偏高」，1.43~2.0 之間只說「輕微」。
+#
+# 為什麼要分級：門檻附近（1.6 左右）的照片多半是夜景暗部的輕微顆粒，
+# 一律寫成「雜訊偏高」會讓使用者覺得系統太敏感——實際看圖確實只是輕微。
+# 標註樣本中量測值超過 2.0 的 32 張全部是 ISO 5000~10000，
+# 1.43~2.0 之間的 16 張則是 ISO 2000~6400，因此以 2.0 分界。
+#
+# 附註不影響任何分數與狀態判定，純粹是顯示給使用者的說明文字。
+NOISE_SIGMA_HIGH = 2.0
+
 # 雜訊估計取樣設定：在原始解析度上取 GRID x GRID 個 TILE_SIZE 見方的區塊，
 # 把所有未截斷的像素合併成單一樣本池。這與「整張圖計算」是同一個估計量，
 # 只是改用抽樣像素，實測誤差多在 0.05 以內，速度快約 6 倍（125 ms → 20 ms）。
@@ -438,6 +448,22 @@ def _estimate_noise_sigma(gray_full):
     return _NOISE_SCALE * total / count
 
 
+def _noise_issue(noise_sigma):
+    """
+    依雜訊估計值回傳附註文字；未超過門檻、無法估計、或功能停用時回傳 None。
+
+    分成兩級的理由見 NOISE_SIGMA_HIGH 的說明：
+    門檻附近的照片多半只是夜景暗部的輕微顆粒，寫成「偏高」會過度警示。
+    """
+    if NOISE_SIGMA_THRESHOLD is None or np.isnan(noise_sigma):
+        return None
+    if noise_sigma <= NOISE_SIGMA_THRESHOLD:
+        return None
+    if noise_sigma > NOISE_SIGMA_HIGH:
+        return f"雜訊偏高（噪點指標 {noise_sigma:.2f}），可能是高 ISO 或弱光環境拍攝"
+    return f"雜訊輕微（噪點指標 {noise_sigma:.2f}），多半來自暗部或弱光"
+
+
 def _analyze_technical_issues(image):
     """
     參數:
@@ -491,9 +517,9 @@ def _analyze_technical_issues(image):
     # 3. 雜訊估計 —— 目前停用（NOISE_SIGMA_THRESHOLD is None），原因見該常數的說明。
     # 門檻設回數值即可重新啟用，估計方法本身已修正並驗證過排序正確性。
     if NOISE_SIGMA_THRESHOLD is not None:
-        noise_sigma = _estimate_noise_sigma(gray_full)
-        if not np.isnan(noise_sigma) and noise_sigma > NOISE_SIGMA_THRESHOLD:
-            issues.append(f"雜訊偏高（噪點指標 {noise_sigma:.2f}），可能是高 ISO 或弱光環境拍攝")
+        issue = _noise_issue(_estimate_noise_sigma(gray_full))
+        if issue is not None:
+            issues.append(issue)
 
     # 4. 對比度：亮度標準差過低代表畫面偏灰、層次不足
     contrast_std = float(np.std(gray))

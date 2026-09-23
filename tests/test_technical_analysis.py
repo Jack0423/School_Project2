@@ -178,6 +178,24 @@ class TestNoiseEstimation(unittest.TestCase):
         self.assertTrue(any('雜訊' in i for i in issues),
                         '雜訊明顯的影像沒有被標記')
 
+    def test_noise_note_has_two_levels(self):
+        """
+        門檻附近（夜景暗部的輕微顆粒）與真正的高 ISO 不該用同一句話。
+        實測門檻附近的照片看起來只是輕微，寫成「偏高」會過度警示。
+        """
+        self.assertIsNone(ai._noise_issue(1.0), '未超過門檻不該有附註')
+        self.assertIsNone(ai._noise_issue(float('nan')), '無法估計時不該有附註')
+        mild = ai._noise_issue(1.62)
+        high = ai._noise_issue(2.50)
+        self.assertIn('輕微', mild)
+        self.assertIn('偏高', high)
+        self.assertIn('1.62', mild)
+        self.assertIn('2.50', high)
+
+    def test_noise_level_boundary(self):
+        self.assertIn('輕微', ai._noise_issue(ai.NOISE_SIGMA_HIGH))
+        self.assertIn('偏高', ai._noise_issue(ai.NOISE_SIGMA_HIGH + 0.01))
+
     def test_high_frequency_detail_is_a_known_false_positive(self):
         """
         已知限制，刻意用測試記錄下來：這個估計量分不開「細節」與「雜訊」。
