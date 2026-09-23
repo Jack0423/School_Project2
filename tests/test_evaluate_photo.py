@@ -5,6 +5,7 @@ evaluate_photo() 的行為測試。
 所以除了正確性，也要釘住它的「回傳格式合約」——
 前台依賴 dict 的鍵名與型別，任何變動都會直接弄壞介面。
 """
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,74 @@ class TestReturnContract(unittest.TestCase):
 
     def test_status_is_one_of_known_values(self):
         self.assertIn(self.result['status'], {'正常', '警告', '優秀'})
+
+
+@requires_weights
+class TestModelVersion(unittest.TestCase):
+    """
+    版本字串給資料庫記錄「這筆分數是哪一版模型算的」。
+    最關鍵的是：權重內容變了版本就必須變——訓練腳本加 --force 會存成同一個檔名，
+    只看檔名的話，重訓前後的分數會在資料庫裡混成同一版。
+    """
+
+    def test_contains_both_weight_names_and_is_stable(self):
+        version = ai.model_version()
+        self.assertIsInstance(version, str)
+        self.assertIn(ai.AES_WEIGHTS.name, version)
+        self.assertIn(ai.TECH_WEIGHTS.name, version)
+        self.assertEqual(version, ai.model_version(), '同一組權重下版本字串必須固定')
+
+    def test_changes_when_weight_content_changes(self):
+        before = ai.model_version()
+        cache, path = ai._MODEL_VERSION_CACHE, ai.AES_WEIGHTS
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                # 檔名相同、內容不同，模擬重新訓練後覆寫同一個權重檔
+                fake = Path(tmp) / ai.AES_WEIGHTS.name
+                fake.write_bytes(ai.AES_WEIGHTS.read_bytes() + b'retrained')
+                ai.AES_WEIGHTS, ai._MODEL_VERSION_CACHE = fake, None
+                after = ai.model_version()
+        finally:
+            ai.AES_WEIGHTS, ai._MODEL_VERSION_CACHE = path, cache
+        self.assertNotEqual(before, after, '權重內容改變後版本字串沒有跟著變')
+
+
+@requires_weights
+class TestFeatureVector(unittest.TestCase):
+    """
+    return_features=True 的選用輸出，給相似照片／連拍分組用（batch_pipeline.py）。
+
+    預設不回傳，由上面的 TestReturnContract 釘住；這裡確認開啟時
+    只多一個鍵、其他欄位一個都不變——前台與資料庫看到的東西不能因此改變。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.path = write_image(make_image(640, 480), Path(cls.tmp.name) / 'p.jpg')
+        cls.plain = ai.evaluate_photo(cls.path)
+        cls.with_features = ai.evaluate_photo(cls.path, return_features=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_default_has_no_feature_vector(self):
+        self.assertNotIn('feature_vector', self.plain)
+
+    def test_feature_vector_is_1280_finite_floats(self):
+        vec = self.with_features['feature_vector']
+        self.assertIsInstance(vec, list)
+        self.assertEqual(len(vec), 1280)
+        self.assertTrue(all(isinstance(v, float) and math.isfinite(v) for v in vec))
+        # 全零向量無法正規化，photo_grouping.py 會直接拒絕
+        self.assertTrue(any(v != 0.0 for v in vec))
+
+    def test_only_adds_feature_vector_and_nothing_else_changes(self):
+        self.assertEqual(set(self.with_features) - set(self.plain), {'feature_vector'})
+        for key, value in self.plain.items():
+            with self.subTest(key=key):
+                self.assertEqual(self.with_features[key], value)
 
 
 @requires_weights

@@ -122,6 +122,31 @@ result = evaluate_photo("path/to/photo.jpg")
 - **權重可調**：`evaluate_photo(p, aesthetic_weight=0.8)`，另一個自動補成 0.2。
 - **權重只影響 `overall_score`**：`status` 只由技術分決定、「優秀」只由美感分決定，
   調整權重會改變排序，但不會把「警告」變成「正常」。
+- **版本標籤**：`ai_inference.model_version()` 回傳目前這組權重的版本字串
+  （檔名 + 內容 SHA-256 前 8 碼，例如 `nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1`）。
+  資料庫每筆分數存一份，下次換模型只要重跑版本對不上的那些，不必整批清空重來。
+- **需要特徵向量時**：`evaluate_photo(p, return_features=True)` 會多回傳 `feature_vector`
+  （美感模型分類頭之前的 1280 維特徵，給相似照片分組用）。預設不回傳，回傳格式與上面相同。
+
+### 批次分析與相似照片分組（宋宇宸）
+
+```bash
+python run_batch.py <照片資料夾> --weight 0.8 --output batch_01.jsonl
+python photo_grouping.py batch_01.jsonl --output photo_groups_01.json
+python run_bursts.py batch_01.jsonl photo_metadata.json --output burst_groups_01.json
+```
+
+- `run_batch.py`：4 條執行緒解碼、單一執行緒推論（模型不可多執行緒呼叫），
+  每張結果即時寫一行 JSONL（分數、權重、1280 維特徵或失敗原因）。整批固定一組權重。
+- `photo_grouping.py`：特徵正規化後以餘弦相似度分組（預設門檻 0.9，須與組內每一張都達門檻），
+  同組綜合分最高者為建議保留。
+- `run_bursts.py`：連拍候選。需要先用 [ExifTool](https://exiftool.org/) 匯出拍攝時間
+  （`exiftool -json -SubSecDateTimeOriginal -DateTimeOriginal -Make -Model -SerialNumber <資料夾> > photo_metadata.json`），
+  同一台相機、整組 2 秒內才比對特徵。
+  ⚠ 上面的 `>` 請在 cmd 或 Git Bash 執行。Windows PowerShell 5.1 的 `>` 會存成 UTF-16，
+  `run_bursts.py` 以 UTF-8 讀取會直接解析失敗。
+
+三者的輸出都含照片的絕對路徑，已列入 `.gitignore`。輸出檔已存在時會拒絕覆寫。
 
 ### 桌面前台
 
@@ -250,6 +275,12 @@ compare_aesthetic_models.py  跨模式公平比較美感模型
 model_report.py         模型成效報表（混淆矩陣、門檻掃描、細項分析、圖表）
 benchmark_gpu.py        GPU / CPU 效能量測（測速三守則）
 
+batch_pipeline.py       批次分析核心：平行解碼 + 單一推論消費者（宋宇宸）
+run_batch.py            批次分析命令列入口
+photo_grouping.py       以特徵餘弦相似度分組、挑建議保留
+burst_metadata.py       連拍判定：EXIF 拍攝時間與相機序號
+run_bursts.py           連拍候選命令列入口
+
 build_ava_labels.py     重建 AVA 標籤
 split_data.py           切分美感資料
 split_koniq.py          切分 KonIQ 資料
@@ -282,5 +313,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 126 個測試。
+目前共 131 個測試。
 細節見 [tests/README.md](tests/README.md)。

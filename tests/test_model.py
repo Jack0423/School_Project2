@@ -67,6 +67,35 @@ class TestDistributionMode(unittest.TestCase):
         self.assertGreater(emd_loss(a, b).item(), 0.0)
 
 
+class TestReturnFeatures(unittest.TestCase):
+    """
+    return_features=True 是給相似照片分組用的（batch_pipeline.py）。
+    釘住兩件事：順便取特徵不可以改變輸出，以及特徵的形狀是 (N, 1280)。
+    """
+
+    def test_output_identical_and_feature_shape(self):
+        torch.manual_seed(0)
+        x = torch.randn(2, 3, 224, 224)
+        for mode, out_shape in (('single', (2,)), ('distribution', (2, 10))):
+            with self.subTest(mode=mode):
+                model = NIMABaseline(output_mode=mode, pretrained=False).eval()
+                with torch.no_grad():
+                    plain = model(x)
+                    out, feats = model(x, return_features=True)
+                self.assertEqual(out.shape, out_shape)
+                self.assertTrue(torch.equal(out, plain),
+                                '開啟 return_features 後輸出與預設呼叫不同')
+                self.assertEqual(feats.shape, (2, 1280))
+
+    def test_batch_size_one_is_not_scalar_with_features(self):
+        """B9 在新的回傳路徑上也必須成立。"""
+        model = NIMABaseline(output_mode='single', pretrained=False).eval()
+        with torch.no_grad():
+            out, feats = model(torch.randn(1, 3, 224, 224), return_features=True)
+        self.assertEqual(out.shape, (1,))
+        self.assertEqual(feats.shape, (1, 1280))
+
+
 class TestArchitectureMatchesCheckpoints(unittest.TestCase):
     """
     釘住「訓練與推論使用同一個架構定義」。

@@ -46,10 +46,18 @@ class NIMABaseline(nn.Module):
                 nn.Linear(1280, 1),
             )
 
-    def forward(self, x):
-        x = self.features(x)
-        x = x.mean([2, 3])          # Global Average Pooling
-        x = self.classifier(x)
+    def forward(self, x, return_features=False):
+        """
+        return_features=True 時回傳 (輸出, 特徵)。
+
+        特徵是 Global Average Pooling 之後、分類頭之前的 1280 維向量，
+        給相似照片比對用（batch_pipeline.py / photo_grouping.py）。
+        同一次前向運算順便取出，不必為了特徵再跑一次骨幹。
+
+        預設 False，回傳值與過去完全相同——訓練、評估、推論的既有呼叫都不受影響。
+        """
+        features = self.features(x).mean([2, 3])    # Global Average Pooling
+        x = self.classifier(features)
         if self.output_mode == 'single':
             # 用 squeeze(-1) 而非 squeeze()：
             # squeeze() 會把「所有」長度為 1 的維度都壓掉，當 batch size 剛好是 1 時
@@ -57,6 +65,8 @@ class NIMABaseline(nn.Module):
             # loss 算錯且只會跳出 UserWarning。
             # squeeze(-1) 只壓最後一維，(N, 1) -> (N,)，batch size 為 1 時也安全。
             x = x.squeeze(-1)
+        if return_features:
+            return x, features
         return x
 
 

@@ -1,0 +1,17 @@
+# 換行格式：交給 Git 正規化，版本庫內一律存 LF，取出時各自依平台設定還原。
+#
+# 為什麼需要：這個專案在 Windows（模型端）與 macOS（批次管線）兩邊開發。
+# 沒有這個檔時，同一份程式碼在兩台機器上可能整檔被視為「每一行都改過」，
+# diff 會塞滿看不出差別的變更，review 與合併都會很痛苦。
+* text=auto
+
+# 二進位檔不要做任何換行轉換，否則內容會被破壞。
+*.pth binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.dng binary
+*.arw binary
+*.pptx binary
+*.docx binary
+*.pdf binary

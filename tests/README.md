@@ -21,10 +21,10 @@ python -m unittest tests.test_evaluate_photo -v
 
 | 檔案 | 守住的行為 |
 |---|---|
-| `test_model.py` | batch size 為 1 時輸出不可被壓成 0 維（B9）；權重能以 `strict=True` 載入，確保訓練與推論共用同一份架構定義（B6） |
+| `test_model.py` | batch size 為 1 時輸出不可被壓成 0 維（B9）；權重能以 `strict=True` 載入，確保訓練與推論共用同一份架構定義（B6）；`return_features=True` 不可改變輸出，特徵形狀為 (N, 1280) |
 | `test_transforms.py` | 推論與驗證必須使用完全相同的前處理（B7）。前處理若改回 `Resize((224,224))` 壓扁長寬比，技術模型的 SRCC 會少 0.0317 |
 | `test_image_loading.py` | RAW 檔依副檔名分流給 rawpy，不可讓 PIL 讀到內嵌縮圖（B1、B2）；`image=` 參數的格式驗證 |
-| `test_evaluate_photo.py` | 回傳格式合約（前台依賴）；分數必須落在 0–100（A5）；失敗原因要能分辨根因（A4）；狀態只由技術分決定、量測結果不參與（丙案） |
+| `test_evaluate_photo.py` | 回傳格式合約（前台依賴）；分數必須落在 0–100（A5）；失敗原因要能分辨根因（A4）；狀態只由技術分決定、量測結果不參與（丙案）；`return_features=True` 只多一個 `feature_vector`（1280 個有限浮點數），其他欄位一個都不能變；`model_version()` 在權重內容改變時必須跟著變（訓練腳本 `--force` 會存成同一個檔名） |
 | `test_technical_analysis.py` | 分析不可自己從硬碟讀檔（B3）；小於分析寬度的影像不可被放大（B19）；雜訊必須在原始解析度上估計（B11） |
 | `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20） |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |

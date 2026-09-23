@@ -1,3 +1,4 @@
+import hashlib
 import os
 import traceback
 from pathlib import Path
@@ -186,6 +187,44 @@ TECH_WEIGHTS = BASE_DIR / 'nima_tech_best.pth'
 
 # 評分分佈的級距（1~10 分），用來把機率分佈換算成期望值
 _SCORE_LEVELS = torch.arange(1, 11, dtype=torch.float32, device=DEVICE)
+
+_MODEL_VERSION_CACHE = None
+
+
+def model_version():
+    """
+    回傳目前這組權重的版本字串，例如：
+
+        nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1
+
+    給資料庫記錄「這筆分數是哪一版模型算出來的」用。
+
+    為什麼需要:
+        這學期美感模型換代後輸出尺度整個改變（舊的會爆到 100 以上、新的約 21~74），
+        但資料庫裡沒有任何欄位分得出哪幾筆是舊模型算的，最後只能整批清空重跑
+        （reset_db_analysis.py 就是為此而寫）。每筆分數附上版本之後，
+        下次換模型只要重跑版本對不上的那些，不必全部重來。
+
+    為什麼不只用檔名:
+        訓練腳本加 --force 就會把新權重存成同一個檔名，檔名因此不足以識別。
+        這裡在檔名後面接上檔案內容 SHA-256 的前 8 碼，內容一變版本就跟著變。
+
+    為什麼是函式而不是模組層級的常數:
+        算指紋要把兩個約 9 MB 的權重檔讀過一遍。做成常數會讓每一次
+        import ai_inference 都付這個成本，即使呼叫端根本用不到版本字串。
+        第一次呼叫後結果會快取，之後都是直接回傳。
+
+    [注意] 特徵向量（見 evaluate_photo 的 return_features）也綁在同一組權重上。
+      版本字串變了，舊的特徵就不能再跟新的算相似度。
+    """
+    global _MODEL_VERSION_CACHE
+    if _MODEL_VERSION_CACHE is None:
+        parts = []
+        for path in (AES_WEIGHTS, TECH_WEIGHTS):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:8]
+            parts.append(f'{path.name}@{digest}')
+        _MODEL_VERSION_CACHE = '+'.join(parts)
+    return _MODEL_VERSION_CACHE
 
 
 def _load_model(weight_path, label):
@@ -558,7 +597,8 @@ def _fail(message, exc=None):
     return None
 
 
-def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight=None):
+def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight=None,
+                   return_features=False):
     """
     對指定路徑的照片進行美感與技術品質評估，並計算綜合分數。
 
@@ -590,6 +630,15 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
               ——狀態只由技術分決定、「優秀」只由美感分決定。
               也就是說調整滑桿會改變照片的「排序」與「最佳照片」是哪一張，
               但不會讓一張原本被標記為警告的照片變成正常。
+
+        return_features (bool, optional): True 時結果多一個 'feature_vector'，
+            是美感模型分類頭之前的 1280 維特徵（list[float]），給相似照片／連拍分組用
+            （見 batch_pipeline.py、photo_grouping.py）。與評分是同一次前向運算，不多花推論時間。
+            預設 False：回傳格式與過去完全相同。刻意不預設開啟——前台與資料庫用不到它，
+            而 1280 個數字會讓 score.py --json 之類「整包輸出結果」的地方每張多出上千行。
+
+            [注意] 特徵只在同一組權重之間可比較。換了美感權重檔（例如重新訓練）之後，
+              舊的特徵與新的特徵不能混在一起算相似度，必須整批重跑。
 
     回傳:
         dict: 包含美感分數、技術分數、綜合分數、系統建議與技術問題細項的字典，
@@ -635,7 +684,12 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
 
         # 2. 雙核心大腦進行不帶梯度的推論
         with torch.no_grad():
-            score_aes = _output_to_score(MODEL_AES(img_tensor), AES_MODE)
+            if return_features:
+                aes_output, features = MODEL_AES(img_tensor, return_features=True)
+                feature_vector = features[0].cpu().tolist()
+            else:
+                aes_output = MODEL_AES(img_tensor)
+            score_aes = _output_to_score(aes_output, AES_MODE)
             score_tech = _output_to_score(MODEL_TECH(img_tensor), TECH_MODE)
 
         # 3. 分數裁切到 0~100
@@ -709,6 +763,8 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
             "aesthetic_weight": w_aes,
             "technical_weight": w_tech,
         }
+        if return_features:
+            result["feature_vector"] = feature_vector
         return result
 
     # 以下把「推論階段」的失敗再依根因分類。原本一律歸為「未知錯誤」，

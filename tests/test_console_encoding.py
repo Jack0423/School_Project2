@@ -113,7 +113,8 @@ class TestGuardMessagesSurviveCp950(unittest.TestCase):
         for name in ('train_nima.py', 'train_tech.py', 'score.py',
                      'build_ava_labels.py', 'reset_db_analysis.py',
                      'compare_aesthetic_models.py', 'split_data.py',
-                     'benchmark_gpu.py', 'model_report.py'):
+                     'benchmark_gpu.py', 'model_report.py',
+                     'run_batch.py', 'photo_grouping.py', 'run_bursts.py'):
             with self.subTest(script=name):
                 result = self._run_under_cp950(PROJECT_ROOT / name, PROJECT_ROOT,
                                                args=('--help',))

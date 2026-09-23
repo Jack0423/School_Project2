@@ -36,6 +36,14 @@ data/*
 # 隨時可以重跑產生，而且每次都帶時間戳記，不需要進版本控管。
 reports/
 
+# batch_pipeline / photo_grouping / run_bursts 的輸出，以及 ExifTool 匯出的 metadata。
+# 內容是每張照片的絕對路徑（含使用者名稱與資料夾結構）與 1280 維特徵，
+# 屬於個人資料，而且隨時可以重跑產生。
+batch_*.jsonl
+photo_groups*.json
+burst_groups*.json
+photo_metadata.json
+
 # ── 歸檔的舊程式碼 ────────────────────────────────────
 # _archive/ 內含已停用的舊版腳本，其中 score.py 與 training_labels.csv
 # 帶有個人磁碟路徑（F:\暫存\0223\...），不應外流。
