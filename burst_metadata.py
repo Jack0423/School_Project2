@@ -98,7 +98,17 @@ def camera_identity(item, camera_match="model"):
     return ("model", str(item.get("Make") or "").strip(), model)
 
 
-def build_burst_check(metadata_path, max_seconds=2.0, camera_match="model"):
+DEFAULT_MAX_SECONDS = 5.0
+"""
+整組連拍的時間跨度上限，2026-09-23 由 2 秒放寬。
+
+人工標註顯示，抽查的 15 張未分組照片中有 3 張是「相似度夠高（0.92~0.93）、
+但拍攝時間差了 3~4 秒」而被排除——實際按快門的節奏沒有那麼緊湊。
+放寬到 5 秒後重新標註有變動的 35 組，沒有出現錯誤的合併。
+"""
+
+
+def build_burst_check(metadata_path, max_seconds=DEFAULT_MAX_SECONDS, camera_match="model"):
     """
     回傳 can_pair(路徑A, 路徑B)，以及一份識別層級的統計（給使用者確認判斷依據）。
     """

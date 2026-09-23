@@ -125,7 +125,7 @@ result = evaluate_photo("path/to/photo.jpg")
 - **RAW 預設半尺寸解碼**：整條批次管線實測快 4.3 倍（325 張 15 GB 的 ARW：2 分鐘 → 26～30 秒）。
   模型只吃 224×224、細項分析只用 800px 寬，半尺寸的 3024×2012 綽綽有餘。
   代價是綜合分平均差 0.34～0.56（最大 2.1），分數壓在門檻上的照片可能換狀態
-  （實測 60 張中 3 張）。要與舊資料一致或要重新啟用雜訊偵測時：`evaluate_photo(p, half_size=False)`。
+  （實測 60 張中 3 張）。要與舊資料一致、或要讓雜訊偵測在原始解析度上估計時：`evaluate_photo(p, half_size=False)`。
   **自己解碼 RAW 的呼叫端**（前台顯示、XMP 模組）請用 `ai_inference.raw_postprocess_params()`
   取得參數，不要自己抄一份，否則傳進來的影像與本模組自行解碼的不同，分數會安靜地不一樣。
 - **版本標籤**：`ai_inference.model_version()` 回傳目前這組權重與解碼設定的版本字串
@@ -159,9 +159,9 @@ python run_bursts.py batch_01.jsonl photo_metadata.json --output burst_groups_01
 python pick_best.py batch_01.jsonl --output best_pick.json
 ```
 
-- **`photo_grouping.py`**：特徵正規化後以餘弦相似度分組（預設門檻 0.9，須與組內每一張都達門檻），
+- **`photo_grouping.py`**：特徵正規化後以餘弦相似度分組（預設門檻 0.85，須與組內每一張都達門檻），
   同組綜合分最高者為建議保留。
-- **`run_bursts.py`**：在上述基礎上，要求兩張照片出自同一台相機且拍攝時間相差 2 秒內。
+- **`run_bursts.py`**：在上述基礎上，要求兩張照片出自同一台相機且拍攝時間相差 5 秒內。
   需要先用 [ExifTool](https://exiftool.org/) 匯出：
 
   ```bash
@@ -182,6 +182,8 @@ python pick_best.py batch_01.jsonl --output best_pick.json
   不依賴 EXIF 也不受相似度門檻影響；相似度只在偏低時印出提醒，不會排除照片。
 
 四者的輸出都含照片的絕對路徑，已列入 `.gitignore`。輸出檔已存在時會拒絕覆寫。
+
+門檻 0.85 與 5 秒是 2026-09-23 用 325 張 ARW 的人工標註校準出來的：原本的 0.9 / 2 秒，抽查 15 張未分組照片有 11 張其實有同伴被漏掉；放寬後救回 9 張，且重新標註「有變動的 35 組」沒有出現錯誤合併（連同第一輪的 105 組，共 140 組人工判斷、0 組誤分）。詳見 `photo_grouping.py` 與 `burst_metadata.py` 的常數說明。
 
 ### 桌面前台
 
@@ -349,5 +351,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 158 個測試。
+目前共 162 個測試。
 細節見 [tests/README.md](tests/README.md)。

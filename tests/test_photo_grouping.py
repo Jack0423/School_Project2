@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import burst_metadata
+import photo_grouping
 from burst_metadata import build_burst_check, camera_identity, parse_capture_time
 from photo_grouping import group_photos
 from pick_best import rank_photos
@@ -183,6 +185,19 @@ class TestBurstCheck(unittest.TestCase):
         can_pair, stats = build_burst_check(path, camera_match='ignore')
         self.assertFalse(can_pair(self.a, self.b))
         self.assertEqual(stats['無拍攝時間'], 1)
+
+
+class TestDefaults(unittest.TestCase):
+    """
+    預設值來自 325 張照片的人工標註（見兩個常數的說明）。
+    這個測試不是怕有人改動，而是確保改動時會看到「這些數字是量出來的」。
+    """
+
+    def test_similarity_threshold(self):
+        self.assertAlmostEqual(photo_grouping.DEFAULT_THRESHOLD, 0.85, places=2)
+
+    def test_burst_time_window(self):
+        self.assertAlmostEqual(burst_metadata.DEFAULT_MAX_SECONDS, 5.0, places=1)
 
 
 class TestGroupPhotos(unittest.TestCase):

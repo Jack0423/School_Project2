@@ -56,7 +56,24 @@ def unit_features(photos):
     return features / lengths
 
 
-def group_photos(input_path, threshold=0.9, can_pair=None):
+DEFAULT_THRESHOLD = 0.85
+"""
+相似度門檻，2026-09-23 由 0.9 下調。
+
+以 325 張 Sony ARW 實跑、由使用者人工標註的結果為依據：
+    門檻 0.90 / 2 秒   105 組，抽查 15 張未分組照片有 11 張其實有同伴被漏掉
+    門檻 0.85 / 5 秒    98 組，同樣 11 張中救回 9 張
+    門檻 0.82 / 5 秒    95 組，救回張數不再增加
+放寬後重新標註「有變動的 35 組」，沒有任何一組把不相干的照片湊在一起
+（第一輪的 105 組也是 0 誤分），因此採用 0.85。
+
+漏分的三個原因各佔：相似度不足 4 張、拍攝時間超過門檻 3 張、
+卡在「必須與組內每一張都達門檻」4 張（例如與組內三張都超過 0.9、
+只有一張是 0.8887，整組就進不去）。放寬門檻同時緩解了第一與第三項。
+"""
+
+
+def group_photos(input_path, threshold=DEFAULT_THRESHOLD, can_pair=None):
     if not 0 <= threshold <= 1:
         raise ValueError("相似度門檻必須介於 0 與 1")
 
@@ -139,7 +156,7 @@ def group_photos(input_path, threshold=0.9, can_pair=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="批次分析的 JSONL 檔案")
-    parser.add_argument("--threshold", type=float, default=0.9)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--output", default="photo_groups.json")
     args = parser.parse_args()
 

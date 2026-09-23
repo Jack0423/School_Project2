@@ -2,16 +2,17 @@ import argparse
 import json
 from pathlib import Path
 
-from burst_metadata import CAMERA_MATCH_CHOICES, build_burst_check
-from photo_grouping import group_photos
+from burst_metadata import (CAMERA_MATCH_CHOICES, DEFAULT_MAX_SECONDS,
+                            build_burst_check)
+from photo_grouping import DEFAULT_THRESHOLD, group_photos
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
     parser.add_argument("metadata")
-    parser.add_argument("--seconds", type=float, default=2.0)
-    parser.add_argument("--threshold", type=float, default=0.9)
+    parser.add_argument("--seconds", type=float, default=DEFAULT_MAX_SECONDS)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--camera-match", choices=CAMERA_MATCH_CHOICES,
                         default="model",
                         help="相機識別的嚴格程度："

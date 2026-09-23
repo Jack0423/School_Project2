@@ -155,21 +155,40 @@ class TestNoiseEstimation(unittest.TestCase):
         allblack = np.zeros((800, 800), dtype=np.uint8)
         self.assertTrue(np.isnan(ai._estimate_noise_sigma(allblack)))
 
-    def test_noise_reporting_is_currently_disabled(self):
+    def test_noise_threshold_matches_the_calibration(self):
         """
-        雜訊門檻目前刻意設為 None（停用）。
-        原因：正負樣本重疊，無法用單一門檻分開——
-        一張經過 Lightroom 降噪的細節照片，指標比真正的高 ISO 照片還高。
-        這個測試不是說停用是永久決定，而是確保它是「明確的選擇」，
-        不會有人無意間改動而未察覺。
-        """
-        self.assertIsNone(ai.NOISE_SIGMA_THRESHOLD,
-                          '雜訊門檻已被啟用。啟用前請確認已用足夠的標註樣本'
-                          '（建議正負各 20 張以上）完成校準，並更新此測試。')
+        2026-09-23 以 77 張人工盲標樣本校準後啟用（53 張有雜訊、24 張乾淨）。
+        門檻取在「乾淨樣本的最大值 1.427」之上，換取零誤報、漏報 5 張。
 
-    def test_no_noise_issue_reported_while_disabled(self):
+        這個測試釘住的是那個取捨：技術量測顯示給使用者看，誤報的代價高於漏報。
+        要調整請連同 ai_inference 內的校準說明一起更新。
+        """
+        self.assertIsNotNone(ai.NOISE_SIGMA_THRESHOLD)
+        self.assertAlmostEqual(ai.NOISE_SIGMA_THRESHOLD, 1.43, places=2)
+
+    def test_clean_image_is_not_reported_as_noisy(self):
+        """誤報是這個功能最不能犯的錯，平坦與模糊的影像都不該被標記。"""
+        for kind in ('flat', 'blur'):
+            with self.subTest(kind=kind):
+                issues = ai._analyze_technical_issues(make_image(kind=kind))
+                self.assertFalse(any('雜訊' in i for i in issues))
+
+    def test_noisy_image_is_reported(self):
         issues = ai._analyze_technical_issues(make_image(kind='noise'))
-        self.assertFalse(any('雜訊' in i for i in issues))
+        self.assertTrue(any('雜訊' in i for i in issues),
+                        '雜訊明顯的影像沒有被標記')
+
+    def test_high_frequency_detail_is_a_known_false_positive(self):
+        """
+        已知限制，刻意用測試記錄下來：這個估計量分不開「細節」與「雜訊」。
+        合成的細節影像 sigma 為 53.5，比刻意加雜訊的 39.8 還高。
+
+        實照片上的影響小得多（ISO<=800 的 76 張只有 3 張超過門檻），
+        但換相機或拍大量細碎紋理時必須重新校準。
+        這個測試若失敗，代表估計方法被改動了，請重新驗證校準是否仍成立。
+        """
+        gray = cv2.cvtColor(make_image(kind='detail'), cv2.COLOR_RGB2GRAY)
+        self.assertGreater(ai._estimate_noise_sigma(gray), ai.NOISE_SIGMA_THRESHOLD)
 
 
 if __name__ == '__main__':
