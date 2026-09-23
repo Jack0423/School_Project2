@@ -119,14 +119,47 @@ RAW_EXTENSIONS = {
     '.raf', '.orf', '.rw2', '.pef', '.srw', '.dcr',
 }
 
-# rawpy 解碼參數，刻意與前台 arw_viewer_gui.py 顯示用的設定保持一致，
+# RAW 預設以「半尺寸」解碼（rawpy 的 half_size：2x2 像素合成一個，跳過去馬賽克）。
+#
+# 為什麼：解碼佔整個流程 83.5% 的時間，是真正的瓶頸。
+# 以 325 張 Sony ARW（15 GB）實測整條批次管線：
+#     全尺寸  每張 366~373 ms   325 張約 2 分鐘
+#     半尺寸  每張  80~ 85 ms   325 張約 26~30 秒   （4.3 倍，調換測試順序驗證過不是快取造成）
+# 模型只吃 224x224、細項分析只用 800px 寬，半尺寸的 3024x2012 綽綽有餘。
+#
+# 代價（120 張實測）：綜合分平均差 0.34~0.56、最大 2.1，
+# 而 60 張中有 3 張的狀態判定改變——都是分數本來就壓在門檻上的照片
+# （例如技術分 59.63 -> 60.84，剛好越過 60 這條線）。
+# 該批有 14/60 的技術分落在門檻 ±3 分內，這種邊緣照片被一點點差異推過去是必然的。
+#
+# 需要「和之前完全一致」或要重新啟用雜訊偵測時，改用全尺寸：
+#     evaluate_photo(path, half_size=False)
+# 雜訊必須在原始解析度上估計，半尺寸的 2x2 合成本身就會把雜訊平均掉。
+RAW_HALF_SIZE = True
+
+# 其餘解碼參數刻意與前台顯示用的設定保持一致，
 # 確保「前台傳入已解碼影像」與「本模組自行解碼」得到完全相同的結果。
 _RAW_POSTPROCESS = dict(
     use_camera_wb=True,
-    half_size=False,
     no_auto_bright=True,
     user_flip=None,
 )
+
+
+def raw_postprocess_params(half_size=None):
+    """
+    回傳 rawpy.postprocess() 要用的參數。
+
+    呼叫端若自己解碼 RAW（前台為了顯示、RAW 模組為了寫 XMP），
+    請用這個函式取得參數，不要自己抄一份：
+        with rawpy.imread(path) as raw:
+            rgb = raw.postprocess(**ai_inference.raw_postprocess_params())
+
+    參數不一致會讓傳進 evaluate_photo(image=...) 的影像與本模組自行解碼的不同，
+    算出來的分數就跟著不同，而且不會有任何錯誤訊息。
+    """
+    return dict(_RAW_POSTPROCESS,
+                half_size=RAW_HALF_SIZE if half_size is None else bool(half_size))
 
 # 傳統影像分析門檻值（可依實測樣本再微調）
 BLUR_VAR_THRESHOLD = 100.0       # Laplacian 變異數，低於此值視為模糊/失焦/手震
@@ -193,11 +226,15 @@ _MODEL_VERSION_CACHE = None
 
 def model_version():
     """
-    回傳目前這組權重的版本字串，例如：
+    回傳目前這組設定的版本字串，例如：
 
-        nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1
+        nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1|raw=half
 
-    給資料庫記錄「這筆分數是哪一版模型算出來的」用。
+    給資料庫記錄「這筆分數是哪一版模型、哪一種解碼設定算出來的」用。
+
+    為什麼連解碼尺寸也要記：RAW 改用半尺寸解碼後，同一張照片的分數會有
+    0.3~0.6 分的差異（邊緣照片甚至會換狀態）。只記權重的話，
+    資料庫裡半尺寸與全尺寸算出來的分數會被當成同一版而混在一起排序。
 
     為什麼需要:
         這學期美感模型換代後輸出尺度整個改變（舊的會爆到 100 以上、新的約 21~74），
@@ -224,7 +261,8 @@ def model_version():
             digest = hashlib.sha256(path.read_bytes()).hexdigest()[:8]
             parts.append(f'{path.name}@{digest}')
         _MODEL_VERSION_CACHE = '+'.join(parts)
-    return _MODEL_VERSION_CACHE
+    # 解碼尺寸不快取：它是模組層級的預設值，呼叫端可能在執行期間改掉。
+    return f'{_MODEL_VERSION_CACHE}|raw={"half" if RAW_HALF_SIZE else "full"}'
 
 
 def _load_model(weight_path, label):
@@ -284,9 +322,12 @@ def _output_to_score(output, mode):
 # ==========================================
 # 3. 影像讀取（依格式分流）
 # ==========================================
-def _load_image_array(img_path):
+def _load_image_array(img_path, half_size=None):
     """
     讀取影像檔，一律回傳 RGB numpy array，形狀 (H, W, 3)、dtype uint8。
+
+    half_size 只影響 RAW：None 用模組預設（RAW_HALF_SIZE，目前為半尺寸），
+    False 強制全尺寸。JPG/PNG 不受影響。
 
     依副檔名分流：RAW 交給 rawpy，其餘交給 PIL。
     不用「先試 PIL、失敗再試 rawpy」的寫法，因為 .DNG 會讓 PIL
@@ -307,7 +348,7 @@ def _load_image_array(img_path):
             ) from e
 
         with rawpy.imread(img_path) as raw:
-            return raw.postprocess(**_RAW_POSTPROCESS)
+            return raw.postprocess(**raw_postprocess_params(half_size))
 
     return np.array(Image.open(img_path).convert('RGB'))
 
@@ -598,7 +639,7 @@ def _fail(message, exc=None):
 
 
 def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight=None,
-                   return_features=False):
+                   return_features=False, half_size=None):
     """
     對指定路徑的照片進行美感與技術品質評估，並計算綜合分數。
 
@@ -640,6 +681,13 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
             [注意] 特徵只在同一組權重之間可比較。換了美感權重檔（例如重新訓練）之後，
               舊的特徵與新的特徵不能混在一起算相似度，必須整批重跑。
 
+        half_size (bool, optional): RAW 的解碼尺寸。None 用模組預設（目前為半尺寸，
+            見 RAW_HALF_SIZE），False 強制全尺寸。批次掃描用預設就好；
+            要與舊資料一致、或要看細節時傳 False。JPG/PNG 不受影響。
+
+            [注意] 只有本函式自行解碼時才有作用。傳了 image= 就是呼叫端自己解碼的，
+              尺寸由呼叫端決定——請用 raw_postprocess_params() 取得一致的參數。
+
     回傳:
         dict: 包含美感分數、技術分數、綜合分數、系統建議與技術問題細項的字典，
               另含本次實際採用的兩個權重（aesthetic_weight / technical_weight）。
@@ -666,7 +714,7 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
         if not os.path.exists(img_path):
             return _fail(f"找不到指定的照片檔案：{img_path}")
         try:
-            image = _load_image_array(img_path)
+            image = _load_image_array(img_path, half_size)
         except Exception as e:
             return _fail(
                 f"無法讀取影像：{img_path}"

@@ -74,6 +74,28 @@ class TestModelVersion(unittest.TestCase):
         self.assertIn(ai.TECH_WEIGHTS.name, version)
         self.assertEqual(version, ai.model_version(), '同一組權重下版本字串必須固定')
 
+    def test_records_raw_decode_size(self):
+        """
+        解碼尺寸也要進版本字串：半尺寸與全尺寸算出來的分數有 0.3~0.6 分差異，
+        只記權重的話，兩種設定的分數會在資料庫裡被當成同一版混在一起排序。
+        """
+        self.assertIn('|raw=half' if ai.RAW_HALF_SIZE else '|raw=full',
+                      ai.model_version())
+        original = ai.RAW_HALF_SIZE
+        try:
+            ai.RAW_HALF_SIZE = not original
+            self.assertNotEqual(ai.model_version(), self.version_with_default())
+        finally:
+            ai.RAW_HALF_SIZE = original
+
+    def version_with_default(self):
+        original = ai.RAW_HALF_SIZE
+        try:
+            ai.RAW_HALF_SIZE = True
+            return ai.model_version()
+        finally:
+            ai.RAW_HALF_SIZE = original
+
     def test_changes_when_weight_content_changes(self):
         before = ai.model_version()
         cache, path = ai._MODEL_VERSION_CACHE, ai.AES_WEIGHTS

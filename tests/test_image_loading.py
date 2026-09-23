@@ -103,6 +103,40 @@ class TestRawIsNotReadByPIL(unittest.TestCase):
         self.assertIn('pip install', message, '錯誤訊息應告訴使用者怎麼解決')
 
 
+class TestRawDecodeSize(unittest.TestCase):
+    """
+    RAW 預設改為半尺寸解碼（整條管線實測快 4.3 倍）。
+
+    釘住兩件事：預設要真的是半尺寸，以及 half_size=False 仍能取回全尺寸——
+    重新啟用雜訊偵測時必須在原始解析度上估計，那條路不能被關掉。
+    """
+
+    def test_default_params_are_half_size(self):
+        self.assertTrue(ai.RAW_HALF_SIZE, '預設應為半尺寸')
+        self.assertTrue(ai.raw_postprocess_params()['half_size'])
+        self.assertFalse(ai.raw_postprocess_params(half_size=False)['half_size'])
+
+    def test_params_keep_the_shared_settings(self):
+        """其他參數必須固定，呼叫端自己解碼時才會得到相同的影像。"""
+        params = ai.raw_postprocess_params()
+        self.assertTrue(params['use_camera_wb'])
+        self.assertTrue(params['no_auto_bright'])
+        self.assertIsNone(params['user_flip'])
+
+    @requires_rawpy
+    def test_half_is_half_the_dimensions_of_full(self):
+        path = find_photo('.arw', '.dng')
+        if path is None:
+            self.skipTest('data/my_photos 內沒有 RAW 檔')
+        full = ai._load_image_array(str(path), half_size=False)
+        half = ai._load_image_array(str(path), half_size=True)
+        self.assertAlmostEqual(full.shape[0] / half.shape[0], 2, delta=0.02)
+        self.assertAlmostEqual(full.shape[1] / half.shape[1], 2, delta=0.02)
+        # 兩者都必須是可直接評分的 RGB uint8
+        for array in (full, half):
+            self.assertIsNone(ai._validate_image_array(array))
+
+
 class TestImageArrayValidation(unittest.TestCase):
     """image= 參數的格式檢查，避免呼叫端傳錯而靜默算出錯誤分數。"""
 

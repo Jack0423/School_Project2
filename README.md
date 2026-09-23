@@ -122,8 +122,15 @@ result = evaluate_photo("path/to/photo.jpg")
 - **權重可調**：`evaluate_photo(p, aesthetic_weight=0.8)`，另一個自動補成 0.2。
 - **權重只影響 `overall_score`**：`status` 只由技術分決定、「優秀」只由美感分決定，
   調整權重會改變排序，但不會把「警告」變成「正常」。
-- **版本標籤**：`ai_inference.model_version()` 回傳目前這組權重的版本字串
-  （檔名 + 內容 SHA-256 前 8 碼，例如 `nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1`）。
+- **RAW 預設半尺寸解碼**：整條批次管線實測快 4.3 倍（325 張 15 GB 的 ARW：2 分鐘 → 26～30 秒）。
+  模型只吃 224×224、細項分析只用 800px 寬，半尺寸的 3024×2012 綽綽有餘。
+  代價是綜合分平均差 0.34～0.56（最大 2.1），分數壓在門檻上的照片可能換狀態
+  （實測 60 張中 3 張）。要與舊資料一致或要重新啟用雜訊偵測時：`evaluate_photo(p, half_size=False)`。
+  **自己解碼 RAW 的呼叫端**（前台顯示、XMP 模組）請用 `ai_inference.raw_postprocess_params()`
+  取得參數，不要自己抄一份，否則傳進來的影像與本模組自行解碼的不同，分數會安靜地不一樣。
+- **版本標籤**：`ai_inference.model_version()` 回傳目前這組權重與解碼設定的版本字串
+  （檔名 + 內容 SHA-256 前 8 碼 + 解碼尺寸，例如
+  `nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1|raw=half`）。
   資料庫每筆分數存一份，下次換模型只要重跑版本對不上的那些，不必整批清空重來。
 - **需要特徵向量時**：`evaluate_photo(p, return_features=True)` 會多回傳 `feature_vector`
   （美感模型分類頭之前的 1280 維特徵，給相似照片分組用）。預設不回傳，回傳格式與上面相同。
@@ -342,5 +349,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 154 個測試。
+目前共 158 個測試。
 細節見 [tests/README.md](tests/README.md)。
