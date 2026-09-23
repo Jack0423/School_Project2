@@ -128,25 +128,53 @@ result = evaluate_photo("path/to/photo.jpg")
 - **需要特徵向量時**：`evaluate_photo(p, return_features=True)` 會多回傳 `feature_vector`
   （美感模型分類頭之前的 1280 維特徵，給相似照片分組用）。預設不回傳，回傳格式與上面相同。
 
-### 批次分析與相似照片分組（宋宇宸）
+### 批次分析與重複照片挑選（宋宇宸）
+
+先批次評分，再選一種方式挑出「同一組裡要留哪張」：
 
 ```bash
 python run_batch.py <照片資料夾> --weight 0.8 --output batch_01.jsonl
-python photo_grouping.py batch_01.jsonl --output photo_groups_01.json
-python run_bursts.py batch_01.jsonl photo_metadata.json --output burst_groups_01.json
 ```
 
-- `run_batch.py`：4 條執行緒解碼、單一執行緒推論（模型不可多執行緒呼叫），
-  每張結果即時寫一行 JSONL（分數、權重、1280 維特徵或失敗原因）。整批固定一組權重。
-- `photo_grouping.py`：特徵正規化後以餘弦相似度分組（預設門檻 0.9，須與組內每一張都達門檻），
+`run_batch.py` 以 4 條執行緒解碼、單一執行緒推論（模型不可多執行緒呼叫），
+每張結果即時寫一行 JSONL（分數、權重、1280 維特徵或失敗原因）。整批固定一組權重。
+接著三種挑選模式，依「誰決定哪些照片算同一組」而不同：
+
+| 模式 | 由誰分組 | 需要 EXIF | 指令 |
+|---|---|---|---|
+| 相似照片檢索 | 程式，看畫面內容 | 否 | `photo_grouping.py` |
+| 連拍候選 | 程式，看內容＋拍攝時間＋相機 | 是 | `run_bursts.py` |
+| 指定一組 | 使用者自己 | 否 | `pick_best.py` |
+
+```bash
+python photo_grouping.py batch_01.jsonl --output photo_groups_01.json
+python run_bursts.py batch_01.jsonl photo_metadata.json --output burst_groups_01.json
+python pick_best.py batch_01.jsonl --output best_pick.json
+```
+
+- **`photo_grouping.py`**：特徵正規化後以餘弦相似度分組（預設門檻 0.9，須與組內每一張都達門檻），
   同組綜合分最高者為建議保留。
-- `run_bursts.py`：連拍候選。需要先用 [ExifTool](https://exiftool.org/) 匯出拍攝時間
-  （`exiftool -json -SubSecDateTimeOriginal -DateTimeOriginal -Make -Model -SerialNumber <資料夾> > photo_metadata.json`），
-  同一台相機、整組 2 秒內才比對特徵。
+- **`run_bursts.py`**：在上述基礎上，要求兩張照片出自同一台相機且拍攝時間相差 2 秒內。
+  需要先用 [ExifTool](https://exiftool.org/) 匯出：
+
+  ```bash
+  exiftool -json -SubSecDateTimeOriginal -DateTimeOriginal -Make -Model -SerialNumber -InternalSerialNumber <資料夾> > photo_metadata.json
+  ```
+
+  `--camera-match` 決定相機識別的嚴格程度：`serial` 只認機身序號；`model`（預設）
+  序號讀不到時退到廠牌＋型號；`ignore` 不比對相機，只看拍攝時間。
+  以序號認定與以型號認定的照片不會被配成一組，執行時會印出各層級的張數。
+
+  為什麼預設不是最嚴格的 `serial`：實測 Sony ILCE-7M4 的 JPG 完全沒有序號欄位、
+  ARW 只有 `InternalSerialNumber`，只認 `SerialNumber` 會讓整個資料夾得到 0 組且毫無錯誤訊息。
+
   ⚠ 上面的 `>` 請在 cmd 或 Git Bash 執行。Windows PowerShell 5.1 的 `>` 會存成 UTF-16，
   `run_bursts.py` 以 UTF-8 讀取會直接解析失敗。
+- **`pick_best.py`**：把輸入的整批照片當成同一組連拍，只做排名與挑選，不自行分組。
+  使用者已經知道哪些是一組時（例如在相機或 Lightroom 裡挑好、複製到同一個資料夾）用這個，
+  不依賴 EXIF 也不受相似度門檻影響；相似度只在偏低時印出提醒，不會排除照片。
 
-三者的輸出都含照片的絕對路徑，已列入 `.gitignore`。輸出檔已存在時會拒絕覆寫。
+四者的輸出都含照片的絕對路徑，已列入 `.gitignore`。輸出檔已存在時會拒絕覆寫。
 
 ### 桌面前台
 
@@ -278,8 +306,9 @@ benchmark_gpu.py        GPU / CPU 效能量測（測速三守則）
 batch_pipeline.py       批次分析核心：平行解碼 + 單一推論消費者（宋宇宸）
 run_batch.py            批次分析命令列入口
 photo_grouping.py       以特徵餘弦相似度分組、挑建議保留
-burst_metadata.py       連拍判定：EXIF 拍攝時間與相機序號
+burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別（序號／型號／不比對）
 run_bursts.py           連拍候選命令列入口
+pick_best.py            使用者自己指定一組連拍，只做排名與挑選
 
 build_ava_labels.py     重建 AVA 標籤
 split_data.py           切分美感資料
@@ -313,5 +342,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 131 個測試。
+目前共 154 個測試。
 細節見 [tests/README.md](tests/README.md)。

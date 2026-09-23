@@ -5,10 +5,13 @@ from pathlib import Path
 import numpy as np
 
 
-def group_photos(input_path, threshold=0.9, can_pair=None):
-    if not 0 <= threshold <= 1:
-        raise ValueError("相似度門檻必須介於 0 與 1")
+def load_photos(input_path):
+    """
+    讀取批次結果，回傳成功的那些紀錄。不同權重混在一起時直接中止。
 
+    抽成函式是為了讓 pick_best.py 共用同一套檢查——
+    「不同權重的綜合分數不能一起排名」這條規則只該有一份實作。
+    """
     with open(input_path, encoding="utf-8") as file:
         records = [
             json.loads(line)
@@ -29,6 +32,11 @@ def group_photos(input_path, threshold=0.9, can_pair=None):
     if len(weights) != 1:
         raise ValueError("結果包含不同權重，請先統一重算綜合分數")
 
+    return photos
+
+
+def unit_features(photos):
+    """取出 1280 維特徵並正規化。正規化後，向量內積就是餘弦相似度。"""
     features = np.asarray(
         [r["feature_vector"] for r in photos],
         dtype=np.float64,
@@ -45,8 +53,19 @@ def group_photos(input_path, threshold=0.9, can_pair=None):
     if (lengths <= 0).any():
         raise ValueError("特徵不能是全零向量")
 
-    # 正規化後，向量內積就是餘弦相似度。
-    features = features / lengths
+    return features / lengths
+
+
+def group_photos(input_path, threshold=0.9, can_pair=None):
+    if not 0 <= threshold <= 1:
+        raise ValueError("相似度門檻必須介於 0 與 1")
+
+    photos = load_photos(input_path)
+
+    if not photos:
+        return []
+
+    features = unit_features(photos)
 
     # 先按分數排序，分數相同時依路徑決定順序。
     order = sorted(

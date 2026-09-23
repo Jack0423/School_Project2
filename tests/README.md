@@ -27,6 +27,7 @@ python -m unittest tests.test_evaluate_photo -v
 | `test_evaluate_photo.py` | 回傳格式合約（前台依賴）；分數必須落在 0–100（A5）；失敗原因要能分辨根因（A4）；狀態只由技術分決定、量測結果不參與（丙案）；`return_features=True` 只多一個 `feature_vector`（1280 個有限浮點數），其他欄位一個都不能變；`model_version()` 在權重內容改變時必須跟著變（訓練腳本 `--force` 會存成同一個檔名） |
 | `test_technical_analysis.py` | 分析不可自己從硬碟讀檔（B3）；小於分析寬度的影像不可被放大（B19）；雜訊必須在原始解析度上估計（B11） |
 | `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20） |
+| `test_photo_grouping.py` | 三種挑選模式。相機識別讀不到 `SerialNumber` 時要能退到 `InternalSerialNumber` 與型號（Sony 的 JPG 沒有序號欄位，只認序號會讓整個資料夾得到 0 組且不報錯）；小數秒要能解析（ExifTool 寫兩位、Python 3.10 只收 3 或 6 位，解析失敗會退回只精確到秒）；`pick_best.py` 不可因相似度低就排除照片 |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
 | `test_metrics.py` | 報表指標（`common/metrics.py`）用手算得出答案的例子逐項驗證：同分樣本不可影響 AUC、沒有判定為正時 F1 是 0 而非 nan、報表的判定方向（`<` / `>`）必須與 `ai_inference.py` 相同。指標算錯不會報錯，只會把錯的數字寫進報告 |
 
