@@ -24,12 +24,17 @@ env/
 #   改成 data/* 排除「目錄內容」，例外規則才有作用。
 data/*
 
-# 保留標註 CSV —— 它們是重現實驗所必需，且體積很小（合計約 380 KB）。
+# 保留標註 CSV —— 它們是重現實驗所必需，且體積很小（合計約 3.3 MB）。
 !data/train_full.csv
 !data/train.csv
 !data/val.csv
 !data/train_tech.csv
 !data/val_tech.csv
+# 現役美感模型（nima_aes_dist.pth）的訓練／驗證集，由 build_ava_labels.py 產生。
+# 原本漏列，clone 下來的人跑 eval_models.py / model_report.py 時美感部分會整段略過。
+!data/ava_full.csv
+!data/ava_train.csv
+!data/ava_val.csv
 
 # ── 產生的報表 ────────────────────────────────────────
 # model_report.py 與 benchmark_gpu.py 的輸出（圖表、JSON、逐張預測 CSV）。
@@ -39,10 +44,15 @@ reports/
 # batch_pipeline / photo_grouping / run_bursts 的輸出，以及 ExifTool 匯出的 metadata。
 # 內容是每張照片的絕對路徑（含使用者名稱與資料夾結構）與 1280 維特徵，
 # 屬於個人資料，而且隨時可以重跑產生。
-batch_*.jsonl
+#
+# 用寬一點的樣式：說明文件裡的範例檔名（batch.jsonl、bursts.json、best_pick.json）
+# 各不相同，原本只擋 batch_*.jsonl 等幾個固定樣式，照範例執行產生的檔案會漏網。
+# 版本庫裡本來就沒有任何 .jsonl。
+*.jsonl
 photo_groups*.json
-burst_groups*.json
-photo_metadata.json
+burst*.json
+best_pick*.json
+photo_metadata*.json
 
 # ── 歸檔的舊程式碼 ────────────────────────────────────
 # _archive/ 內含已停用的舊版腳本，其中 score.py 與 training_labels.csv
