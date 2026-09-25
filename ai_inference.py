@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ==========================================
 # 1. 模型架構與前處理（改由 common/ 提供，確保與訓練時完全一致）
@@ -278,14 +278,29 @@ _SCORE_LEVELS = torch.arange(1, 11, dtype=torch.float32, device=DEVICE)
 
 _MODEL_VERSION_CACHE = None
 
+# 評分流程的版本號，會出現在 model_version() 的最後面（|rev=N）。
+#
+# 權重指紋與解碼尺寸以外，任何會讓「同一張照片算出不同結果」的程式修改，
+# 都要把這個數字加 1。權重沒換、程式卻改了算法時，只有它能讓資料庫分出新舊——
+# 否則修改前存進去的分數會和修改後的混在同一份清單裡排序，不會有任何錯誤訊息。
+#   1  2026-09-23 以前（commit 252261c 為止）
+#   2  2026-09-25  JPG 依 EXIF 方向轉正（直幅照片的分數會改變）；
+#                  RAW 半尺寸改用另一組雜訊門檻（只改附註文字，分數不變）
+SCORING_REVISION = 2
 
-def model_version():
+
+def model_version(half_size=None):
     """
     回傳目前這組設定的版本字串，例如：
 
-        nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1|raw=half
+        nima_aes_dist.pth@71dbd9e1+nima_tech_best.pth@e39a98f4|raw=half|rev=2
 
     給資料庫記錄「這筆分數是哪一版模型、哪一種解碼設定算出來的」用。
+    三段各記一件事：權重內容（檔名＋指紋）、RAW 解碼尺寸、評分流程版本（SCORING_REVISION）。
+
+    參數:
+        half_size: 與 evaluate_photo 的同名參數相同。評分時傳了 half_size=False，
+            這裡也要傳同一個值，版本字串才會記成 raw=full。不傳就是模組預設。
 
     為什麼連解碼尺寸也要記：RAW 改用半尺寸解碼後，同一張照片的分數會有
     0.3~0.6 分的差異（邊緣照片甚至會換狀態）。只記權重的話，
@@ -317,7 +332,8 @@ def model_version():
             parts.append(f'{path.name}@{digest}')
         _MODEL_VERSION_CACHE = '+'.join(parts)
     # 解碼尺寸不快取：它是模組層級的預設值，呼叫端可能在執行期間改掉。
-    return f'{_MODEL_VERSION_CACHE}|raw={"half" if RAW_HALF_SIZE else "full"}'
+    raw_half = RAW_HALF_SIZE if half_size is None else bool(half_size)
+    return f'{_MODEL_VERSION_CACHE}|raw={"half" if raw_half else "full"}|rev={SCORING_REVISION}'
 
 
 def _load_model(weight_path, label):
@@ -377,6 +393,9 @@ def _output_to_score(output, mode):
 # ==========================================
 # 3. 影像讀取（依格式分流）
 # ==========================================
+_EXIF_ORIENTATION = 0x0112   # EXIF 的 Orientation 標記編號；1 代表不用轉
+
+
 def _load_image_array(img_path, half_size=None):
     """
     讀取影像檔，一律回傳 RGB numpy array，形狀 (H, W, 3)、dtype uint8。
@@ -387,6 +406,9 @@ def _load_image_array(img_path, half_size=None):
     依副檔名分流：RAW 交給 rawpy，其餘交給 PIL。
     不用「先試 PIL、失敗再試 rawpy」的寫法，因為 .DNG 會讓 PIL
     「成功」讀到內嵌縮圖而不報錯，這種 fallback 永遠不會被觸發。
+
+    兩條路都會把照片轉正：rawpy 依 RAW 內的方向資訊（user_flip=None），
+    JPG 等依 EXIF 的 Orientation 標記（見下方說明）。
     """
     ext = os.path.splitext(img_path)[1].lower()
 
@@ -405,7 +427,45 @@ def _load_image_array(img_path, half_size=None):
         with rawpy.imread(img_path) as raw:
             return raw.postprocess(**raw_postprocess_params(half_size))
 
-    return np.array(Image.open(img_path).convert('RGB'))
+    with Image.open(img_path) as im:
+        # 依 EXIF 方向轉正（2026-09-25 起，SCORING_REVISION 2）。
+        #
+        # 相機與手機直拿拍照時，JPG 的像素仍是橫的，只在 EXIF 記一個
+        # 「顯示時要轉 90°」的 Orientation 標記；PIL 不會自動套用它。
+        # 原本模型看到的是躺著的照片，同一張照片的 ARW 卻是正的（rawpy 會轉）。
+        # 實測把照片轉 90° 再評分：美感分平均差 4.2、技術分平均差 3.9（最大 10.5，
+        # 可以跨過警告門檻），特徵的餘弦相似度只剩 0.54~0.85——
+        # 同一個鏡頭的 JPG 與 ARW 會分不到同一組。
+        #
+        # 訓練資料不受影響：AVA 7,000 張只有 8 張帶旋轉標記，KonIQ 沒有。
+        # 只在標記不是 1 時才轉，沒有標記或本來就正的照片不會多複製一次整張影像。
+        if im.getexif().get(_EXIF_ORIENTATION, 1) != 1:
+            im = ImageOps.exif_transpose(im)
+        return np.array(im.convert('RGB'))
+
+
+def load_image(img_path, half_size=None):
+    """
+    讀取照片，回傳與 evaluate_photo() 內部完全相同的 RGB 影像
+    （形狀 (H, W, 3)、dtype uint8，RAW 依 half_size 解碼，JPG 依 EXIF 轉正）。
+
+    給自己也要解碼照片的呼叫端（例如前台要顯示照片）：顯示與評分共用同一份，
+    解碼只做一次，而且保證模型看到的就是畫面上那一張：
+
+        rgb = ai_inference.load_image(path)
+        # ……拿 rgb 去顯示……
+        result = ai_inference.evaluate_photo(path, image=rgb)
+
+    自己用 PIL 或 rawpy 解碼的話，參數或轉正方式只要有一點不同，
+    分數就會和本模組自行解碼時不一樣，而且不會有任何錯誤訊息。
+
+    參數:
+        half_size: 只影響 RAW，意義與 evaluate_photo 的同名參數相同。
+            傳了 False，之後呼叫 evaluate_photo 也要傳 half_size=False。
+
+    讀不到檔案或格式不支援時直接拋出例外（不像 evaluate_photo 回傳 None）。
+    """
+    return _load_image_array(img_path, half_size)
 
 
 def _validate_image_array(image):
@@ -524,6 +584,7 @@ def _analyze_technical_issues(image, raw_half_size=False):
       2. cv2.imread 會自動套用 EXIF 旋轉，PIL 的 Image.open 則不會。
          原本模型看的是未旋轉的影像、傳統分析看的卻是旋轉後的影像，
          兩者對不上。統一由呼叫端解碼一次再往下傳，這個不一致自然消失。
+         （2026-09-25 起 _load_image_array 會依 EXIF 轉正，兩者看的都是正的照片。）
     """
     issues = []
 
@@ -751,8 +812,10 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
               程式無法分辨——傳錯只會安靜地算出錯誤分數，不會報錯。
               用 cv2.imread() 取得的影像必須先經
               cv2.cvtColor(img, cv2.COLOR_BGR2RGB) 轉換再傳入。
-              PIL 的 np.array(Image.open(p).convert('RGB')) 與
-              rawpy 的 raw.postprocess() 都已經是 RGB，可直接使用。
+
+              最保險的做法是用 load_image(img_path) 取得影像：它就是本函式內部的
+              解碼流程（RGB、RAW 參數一致、JPG 依 EXIF 轉正）。自己用 PIL 讀的話
+              要記得轉正，否則直幅 JPG 會以躺著的樣子被評分。
 
         aesthetic_weight (float, optional): 綜合分中美感分的佔比，介於 0 與 1。
         technical_weight (float, optional): 綜合分中技術分的佔比，介於 0 與 1。

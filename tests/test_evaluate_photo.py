@@ -88,6 +88,26 @@ class TestModelVersion(unittest.TestCase):
         finally:
             ai.RAW_HALF_SIZE = original
 
+    def test_records_scoring_revision(self):
+        """
+        權重沒換、程式改了算法時（例如 JPG 改成依 EXIF 轉正），
+        只有評分流程版本號能讓資料庫分出新舊分數。
+        """
+        self.assertTrue(ai.model_version().endswith(f'|rev={ai.SCORING_REVISION}'))
+        original = ai.SCORING_REVISION
+        try:
+            ai.SCORING_REVISION = original + 1
+            bumped = ai.model_version()
+        finally:
+            ai.SCORING_REVISION = original
+        self.assertNotEqual(bumped, ai.model_version())
+
+    def test_follows_per_call_half_size(self):
+        """評分時傳了 half_size=False，版本字串也要能記成 raw=full。"""
+        self.assertIn('|raw=full', ai.model_version(half_size=False))
+        self.assertIn('|raw=half', ai.model_version(half_size=True))
+        self.assertEqual(ai.model_version(), ai.model_version(half_size=ai.RAW_HALF_SIZE))
+
     def version_with_default(self):
         original = ai.RAW_HALF_SIZE
         try:
@@ -367,6 +387,25 @@ class TestImageParameter(unittest.TestCase):
                 with self.subTest(value=type(bad).__name__):
                     self.assertIsNone(ai.evaluate_photo(path, image=bad))
                     self.assertIn('image 參數格式不正確', ai.LAST_ERROR)
+
+    def test_rotated_jpeg_is_scored_upright(self):
+        """
+        帶 EXIF 方向標記的直幅 JPG，分數必須等於「手動轉正後」的分數，
+        也就是和同一張照片的 RAW 一樣以正的樣子評分。
+        """
+        import numpy as np
+        from PIL import Image
+        stored = make_image(320, 240, kind='detail')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'portrait.jpg')
+            exif = Image.Exif()
+            exif[0x0112] = 6
+            Image.fromarray(stored).save(path, exif=exif)
+            with Image.open(path) as im:
+                upright = np.ascontiguousarray(np.rot90(np.array(im.convert('RGB')), -1))
+            from_path = ai.evaluate_photo(path)
+            from_upright = ai.evaluate_photo(path, image=upright)
+        self.assertEqual(from_path, from_upright)
 
     def test_path_is_not_read_when_image_supplied(self):
         """傳入影像時不應再碰硬碟——路徑不存在也要能算分。"""

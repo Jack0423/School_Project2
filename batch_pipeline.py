@@ -64,7 +64,7 @@ def analyze_batch(paths, output_path, aesthetic_weight=0.6,
                     return
 
                 future = pool.submit(
-                    ai_inference._load_image_array,
+                    ai_inference.load_image,
                     path,
                 )
                 pending.append((path, future))

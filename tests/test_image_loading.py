@@ -137,6 +137,64 @@ class TestRawDecodeSize(unittest.TestCase):
             self.assertIsNone(ai._validate_image_array(array))
 
 
+def write_with_orientation(array, path, orientation):
+    """存成帶 EXIF Orientation 標記的 JPG，模擬相機或手機直拿拍的照片。"""
+    exif = Image.Exif()
+    exif[0x0112] = orientation
+    Image.fromarray(array).save(path, exif=exif)
+    return str(path)
+
+
+def decode_without_rotation(path):
+    """PIL 直接解碼、不套用方向標記——也就是修正前模型看到的樣子。"""
+    with Image.open(path) as im:
+        return np.array(im.convert('RGB'))
+
+
+class TestExifOrientation(unittest.TestCase):
+    """
+    JPG 必須依 EXIF 方向轉正（2026-09-25）。
+
+    相機直拿拍照時像素仍是橫的，只記一個方向標記；PIL 不會自動套用。
+    修正前直幅 JPG 以躺著的樣子被評分，同一張照片的 ARW 卻是正的（rawpy 會轉）。
+    實測轉 90° 會讓技術分最多差 10.5 分，特徵相似度掉到分組門檻以下。
+    """
+
+    # PIL 的 exif_transpose：3 = 轉 180°、6 = 順時針 90°、8 = 逆時針 90°
+    EXPECTED = {3: lambda a: np.rot90(a, 2), 6: lambda a: np.rot90(a, -1),
+                8: lambda a: np.rot90(a, 1)}
+
+    def test_rotated_jpeg_is_loaded_upright(self):
+        stored = make_image(320, 240)            # 橫的像素，和相機存的一樣
+        with tempfile.TemporaryDirectory() as tmp:
+            for orientation, rotate in self.EXPECTED.items():
+                with self.subTest(orientation=orientation):
+                    path = write_with_orientation(stored, Path(tmp) / f'o{orientation}.jpg',
+                                                  orientation)
+                    expected = rotate(decode_without_rotation(path))
+                    loaded = ai._load_image_array(path)
+                    self.assertEqual(loaded.shape, expected.shape)
+                    self.assertTrue(np.array_equal(loaded, expected),
+                                    '照片沒有依 EXIF 方向轉正')
+
+    def test_upright_jpeg_is_untouched(self):
+        """沒有標記、或標記為 1 的照片必須和修正前逐位元相同，分數才不會無故改變。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, path in (
+                    ('無標記', write_image(make_image(320, 240), Path(tmp) / 'plain.jpg')),
+                    ('標記 1', write_with_orientation(make_image(320, 240),
+                                                     Path(tmp) / 'o1.jpg', 1))):
+                with self.subTest(case=name):
+                    self.assertTrue(np.array_equal(ai._load_image_array(path),
+                                                   decode_without_rotation(path)))
+
+    def test_public_loader_is_the_same_decode(self):
+        """load_image() 是給前台共用的解碼，必須與 evaluate_photo 內部的完全相同。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_with_orientation(make_image(320, 240), Path(tmp) / 'x.jpg', 6)
+            self.assertTrue(np.array_equal(ai.load_image(path), ai._load_image_array(path)))
+
+
 class TestImageArrayValidation(unittest.TestCase):
     """image= 參數的格式檢查，避免呼叫端傳錯而靜默算出錯誤分數。"""
 

@@ -124,6 +124,11 @@ result = evaluate_photo("path/to/photo.jpg")
 - **已解碼的影像可直接傳入**：`evaluate_photo(p, image=arr)` 省下一次解碼
   （RAW 全尺寸解碼約 700–1100 ms，遠高於推論本身：CPU 約 21 ms、GPU 約 12 ms）。
   ⚠ 通道順序必須是 **RGB**，傳入 BGR 不會報錯，只會安靜地算出錯誤分數。
+  **前台要顯示照片時請用 `ai_inference.load_image(p)` 解碼**，再把同一份傳進 `image=`：
+  它就是本模組內部的解碼流程（RGB、RAW 參數一致、JPG 依 EXIF 轉正），顯示與評分保證是同一張。
+- **直幅 JPG 會自動轉正**：相機與手機直拿拍照時，JPG 的像素仍是橫的，只在 EXIF 記方向。
+  2026-09-25 前模型看到的是躺著的照片（同一張的 ARW 卻是正的），轉 90° 實測技術分最多差 10.5 分。
+  現在依 EXIF 轉正；沒有方向標記的照片分數完全不變。
 - **權重可調**：`evaluate_photo(p, aesthetic_weight=0.8)`，另一個自動補成 0.2。
 - **權重只影響 `overall_score`**：`status` 只由技術分決定、「優秀」只由美感分決定，
   調整權重會改變排序，但不會把「警告」變成「正常」。
@@ -138,10 +143,13 @@ result = evaluate_photo("path/to/photo.jpg")
   取得參數，不要自己抄一份，否則傳進來的影像與本模組自行解碼的不同，分數會安靜地不一樣。
   解碼時若傳了 `half_size=False`，呼叫 `evaluate_photo(p, image=rgb, half_size=False)` 也要傳同一個值，
   雜訊才會用對門檻。
-- **版本標籤**：`ai_inference.model_version()` 回傳目前這組權重與解碼設定的版本字串
-  （檔名 + 內容 SHA-256 前 8 碼 + 解碼尺寸，例如
-  `nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1|raw=half`）。
-  資料庫每筆分數存一份，下次換模型只要重跑版本對不上的那些，不必整批清空重來。
+- **版本標籤**：`ai_inference.model_version()` 回傳版本字串，例如
+  `nima_aes_dist.pth@71dbd9e1+nima_tech_best.pth@e39a98f4|raw=half|rev=2`，
+  三段分別記「權重內容（檔名＋SHA-256 前 8 碼）」「RAW 解碼尺寸」「評分流程版本」。
+  資料庫每筆分數存一份，之後換模型**或改了評分算法**，只要重跑版本對不上的那些，不必整批清空重來。
+  評分時傳了 `half_size=False`，這裡也要傳 `model_version(half_size=False)`。
+  最後的 `rev` 在權重沒換、但程式改變了評分結果時遞增（`SCORING_REVISION`，目前為 2：
+  JPG 轉正與半尺寸雜訊門檻）。
 - **需要特徵向量時**：`evaluate_photo(p, return_features=True)` 會多回傳 `feature_vector`
   （美感模型分類頭之前的 1280 維特徵，給相似照片分組用）。預設不回傳，回傳格式與上面相同。
 
@@ -363,5 +371,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 170 個測試。
+目前共 176 個測試。
 細節見 [tests/README.md](tests/README.md)。
