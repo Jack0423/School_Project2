@@ -377,6 +377,58 @@ class TestImageParameter(unittest.TestCase):
 
 
 @requires_weights
+class TestNoiseThresholdFollowsDecodeSize(unittest.TestCase):
+    """
+    RAW 預設半尺寸解碼後，雜訊門檻必須跟著換成半尺寸那一組。
+
+    2026-09-25 發現的缺陷：門檻 1.43 是在全尺寸上校準的，半尺寸量到的值高 1.4~2.5 倍，
+    沿用同一個門檻時 ISO 100~125 的 30 張裡有 7 張被標記有雜訊（4 張寫成「偏高」）。
+    合成影像測不出這件事，所以這裡把估計值固定成 2.5：
+    全尺寸下是「偏高」，半尺寸下應該不標記。
+    """
+    SIGMA = 2.5
+
+    def setUp(self):
+        self._original = ai._estimate_noise_sigma
+        ai._estimate_noise_sigma = lambda _gray: self.SIGMA
+        self.image = make_image(320, 240)
+
+    def tearDown(self):
+        ai._estimate_noise_sigma = self._original
+
+    def _noise_notes(self, path, **kwargs):
+        r = ai.evaluate_photo(path, image=self.image, **kwargs)
+        self.assertIsNotNone(r, ai.LAST_ERROR)
+        return [i for i in r['technical_issues'] if '雜訊' in i]
+
+    def test_raw_with_default_decode_uses_half_size_threshold(self):
+        self.assertTrue(ai.RAW_HALF_SIZE, '測試前提：RAW 預設為半尺寸')
+        for path in ('x.arw', 'X.ARW', 'x.dng'):
+            with self.subTest(path=path):
+                self.assertEqual(self._noise_notes(path), [])
+
+    def test_raw_decoded_at_full_size_uses_full_threshold(self):
+        notes = self._noise_notes('x.arw', half_size=False)
+        self.assertTrue(notes and '偏高' in notes[0])
+
+    def test_non_raw_uses_full_threshold(self):
+        """JPG 沒有半尺寸這回事；img_path 不是路徑時也維持原本的全尺寸行為。"""
+        for path in ('x.jpg', 'x.png', None):
+            with self.subTest(path=path):
+                notes = self._noise_notes(path)
+                self.assertTrue(notes and '偏高' in notes[0])
+
+    def test_follows_the_module_default(self):
+        original = ai.RAW_HALF_SIZE
+        ai.RAW_HALF_SIZE = False
+        try:
+            notes = self._noise_notes('x.arw')
+        finally:
+            ai.RAW_HALF_SIZE = original
+        self.assertTrue(notes, '模組預設改為全尺寸後，RAW 應改用全尺寸門檻')
+
+
+@requires_weights
 class TestStatusDecoupledFromMeasurements(unittest.TestCase):
     """
     釘住「丙案」：狀態只由技術分決定，影像量測結果僅作補充資訊。

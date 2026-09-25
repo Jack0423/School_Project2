@@ -196,6 +196,27 @@ class TestNoiseEstimation(unittest.TestCase):
         self.assertIn('輕微', ai._noise_issue(ai.NOISE_SIGMA_HIGH))
         self.assertIn('偏高', ai._noise_issue(ai.NOISE_SIGMA_HIGH + 0.01))
 
+    def test_half_size_threshold_matches_the_calibration(self):
+        """
+        RAW 預設半尺寸解碼，量到的 sigma 比全尺寸高 1.4~2.5 倍，必須另有一組門檻。
+        2026-09-25 用同一批 77 張盲標樣本在半尺寸上重算：乾淨最大 3.016，
+        取 3.02 維持零誤報（代價是漏報 21 張）；分級取 ISO 5000 與 10000 兩群中間的 3.3。
+        """
+        self.assertAlmostEqual(ai.NOISE_SIGMA_THRESHOLD_HALF, 3.02, places=2)
+        self.assertAlmostEqual(ai.NOISE_SIGMA_HIGH_HALF, 3.3, places=2)
+        self.assertGreater(ai.NOISE_SIGMA_THRESHOLD_HALF, ai.NOISE_SIGMA_HIGH,
+                           '半尺寸門檻應高於全尺寸的「偏高」線，否則等於沒有分開校準')
+
+    def test_half_size_uses_its_own_thresholds(self):
+        """
+        同一個數值在兩種尺寸下的意義不同。2.5 在全尺寸是明顯的高 ISO，
+        在半尺寸卻落在乾淨照片的範圍內（ISO 100 的 DSC02032 半尺寸就是 3.02）。
+        """
+        self.assertIn('偏高', ai._noise_issue(2.5))
+        self.assertIsNone(ai._noise_issue(2.5, raw_half_size=True))
+        self.assertIn('輕微', ai._noise_issue(3.1, raw_half_size=True))
+        self.assertIn('偏高', ai._noise_issue(3.5, raw_half_size=True))
+
     def test_high_frequency_detail_is_a_known_false_positive(self):
         """
         已知限制，刻意用測試記錄下來：這個估計量分不開「細節」與「雜訊」。

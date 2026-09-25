@@ -15,16 +15,19 @@
 
 ## 實測指標
 
-於 2026-09-05 在對應驗證集上量測：
+於 2026-09-19 在對應驗證集上量測（完整紀錄見 [docs/verification_log.md](docs/verification_log.md)）：
 
-| 模型 | 指標 | 數值 | 驗證集 |
+| 模型 | PLCC | SRCC | 驗證集 |
 |---|---|---|---|
-| 技術（`nima_tech_best.pth`） | PLCC / SRCC | 0.8315 / 0.7953 | KonIQ 驗證集 2,015 張 |
-| 美感（`nima_aes_binary.pth`，舊二元版） | AUC | 0.9791 | AVA 驗證集 |
+| 美感（`nima_aes_dist.pth`，評分分佈版） | 0.8872 | 0.7925 | AVA 驗證集 1,400 張，對照答案為群眾平均分 |
+| 技術（`nima_tech_best.pth`） | 0.8314 | 0.7951 | KonIQ 驗證集 2,015 張 |
 
-隨時可用 `python eval_models.py` 重現。美感模型現已改用評分分佈版
-（`nima_aes_dist.pth`），二元與分佈兩種模式的指標不可直接比較，
-跨模式比較請用 `compare_aesthetic_models.py`（統一以 AVA 群眾平均分為對照答案）。
+隨時可用 `python eval_models.py` 重現。新舊美感模型（二元標籤 vs 評分分佈）的比較
+請用 `compare_aesthetic_models.py`，它統一以 AVA 群眾平均分為對照答案。
+
+兩點限制：挑選最佳 epoch 與量測上面的數字用的是同一份驗證集，沒有另外保留測試集；
+KonIQ 的驗證集是自己隨機切的 20%，**不是**官方的 test 切分（剛好也是 2,015 張），
+不能直接和論文數字比較。
 
 ---
 
@@ -86,8 +89,10 @@ data/
 │   └── koniq10k_distributions_sets.csv
 ├── ava/
 │   └── ground_truth_dataset.csv   AVA 原始評分分佈
-├── train_full.csv                   美感完整標籤（split_data.py 的來源）
-├── train.csv / val.csv              美感（二元標籤）
+├── ava_full.csv                     AVA 完整標籤（build_ava_labels.py 產生，含 1–10 級分佈）
+├── ava_train.csv / ava_val.csv      美感，現役模型 nima_aes_dist.pth 用的切分
+├── train_full.csv                   舊二元標籤的完整檔（split_data.py 的來源）
+├── train.csv / val.csv              美感（二元標籤，舊模型 nima_best.pth 用）
 ├── train_tech.csv / val_tech.csv    技術（KonIQ MOS）
 └── my_photos/               自己的測試照片（含 RAW）
 ```
@@ -114,7 +119,7 @@ result = evaluate_photo("path/to/photo.jpg")
 不會讓 PIL 誤讀內嵌縮圖）。失敗時回傳 `None`，原因可從模組層級的
 `LAST_ERROR` 取得，且會依根因分類（硬體／驅動錯誤不會被誤報成照片格式問題）。
 
-三個實用細節：
+幾個實用細節：
 
 - **已解碼的影像可直接傳入**：`evaluate_photo(p, image=arr)` 省下一次解碼
   （RAW 全尺寸解碼約 700–1100 ms，遠高於推論本身：CPU 約 21 ms、GPU 約 12 ms）。
@@ -125,9 +130,14 @@ result = evaluate_photo("path/to/photo.jpg")
 - **RAW 預設半尺寸解碼**：整條批次管線實測快 4.3 倍（325 張 15 GB 的 ARW：2 分鐘 → 26～30 秒）。
   模型只吃 224×224、細項分析只用 800px 寬，半尺寸的 3024×2012 綽綽有餘。
   代價是綜合分平均差 0.34～0.56（最大 2.1），分數壓在門檻上的照片可能換狀態
-  （實測 60 張中 3 張）。要與舊資料一致、或要讓雜訊偵測在原始解析度上估計時：`evaluate_photo(p, half_size=False)`。
+  （實測 60 張中 3 張）。要與舊資料一致時：`evaluate_photo(p, half_size=False)`。
+  **雜訊附註在半尺寸下比較不靈敏**：兩種尺寸各有一組校準過的門檻（全尺寸 1.43、半尺寸 3.02，
+  都是零誤報），但半尺寸只抓得到明顯的高 ISO 雜訊（77 張標註樣本漏報 21 張，全尺寸只漏 5 張）。
+  要完整的雜訊判斷請用 `half_size=False`。
   **自己解碼 RAW 的呼叫端**（前台顯示、XMP 模組）請用 `ai_inference.raw_postprocess_params()`
   取得參數，不要自己抄一份，否則傳進來的影像與本模組自行解碼的不同，分數會安靜地不一樣。
+  解碼時若傳了 `half_size=False`，呼叫 `evaluate_photo(p, image=rgb, half_size=False)` 也要傳同一個值，
+  雜訊才會用對門檻。
 - **版本標籤**：`ai_inference.model_version()` 回傳目前這組權重與解碼設定的版本字串
   （檔名 + 內容 SHA-256 前 8 碼 + 解碼尺寸，例如
   `nima_aes_dist.pth@3f2a1c9d+nima_tech_best.pth@8b4e07f1|raw=half`）。
@@ -210,7 +220,9 @@ python train_tech.py --img-dir data/koniq/512x384 --save nima_tech_best.pth
 輸出權重若已存在會中止，需明確加 `--force`。
 
 `train_nima.py` 的 `--mode` 決定損失函數：`single` 用 MSELoss，
-`distribution` 用 EMD loss（推土機距離，對 CDF 差值取 mean，與 NIMA 論文一致）。
+`distribution` 用 EMD loss（推土機距離，對 CDF 差值的平方取 mean）。
+與 NIMA 論文的定義差在沒有開根號，數值不能和論文直接比較；報表裡的 EMD 用的是論文定義
+（`common/metrics.py` 的 `emd_per_sample`）。
 
 訓練速度（美感模型 5,600 張、batch 32、RTX 5070 Ti / Ryzen 7 5800X）：2026-09-22 在電腦閒置時
 以 `benchmark_gpu.py` 量測，`num_workers=0`（目前 Windows 上的設定）每批 206 ms，一個 epoch 約 36 秒；
@@ -351,5 +363,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 164 個測試。
+目前共 170 個測試。
 細節見 [tests/README.md](tests/README.md)。

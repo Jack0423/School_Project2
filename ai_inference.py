@@ -132,9 +132,12 @@ RAW_EXTENSIONS = {
 # （例如技術分 59.63 -> 60.84，剛好越過 60 這條線）。
 # 該批有 14/60 的技術分落在門檻 ±3 分內，這種邊緣照片被一點點差異推過去是必然的。
 #
-# 需要「和之前完全一致」或要重新啟用雜訊偵測時，改用全尺寸：
+# 需要「和之前完全一致」、或要最準的雜訊判斷時，改用全尺寸：
 #     evaluate_photo(path, half_size=False)
-# 雜訊必須在原始解析度上估計，半尺寸的 2x2 合成本身就會把雜訊平均掉。
+#
+# 雜訊偵測在兩種尺寸下各有一組門檻（見 NOISE_SIGMA_THRESHOLD_HALF）。
+# 半尺寸量出來的數值比全尺寸高 1.4~2.5 倍，而且乾淨與有雜訊兩群重疊得更多，
+# 只抓得到明顯的高 ISO 雜訊——這是換取 4.3 倍速度的代價之一。
 RAW_HALF_SIZE = True
 
 # 其餘解碼參數刻意與前台顯示用的設定保持一致，
@@ -165,9 +168,11 @@ def raw_postprocess_params(half_size=None):
 BLUR_VAR_THRESHOLD = 100.0       # Laplacian 變異數，低於此值視為模糊/失焦/手震
 OVEREXPOSED_RATIO_THRESHOLD = 0.05   # 死白像素比例
 UNDEREXPOSED_RATIO_THRESHOLD = 0.05  # 死黑像素比例
-# 雜訊判斷門檻。設為 None 代表「計算但不對外回報」。
+# 雜訊判斷門檻（全尺寸解碼、JPG/PNG 用）。設為 None 代表停用：不計算、也不回報。
 #
 # 2026-09-23 以人工標註校準後啟用（先前因樣本不足而設為 None）。
+# 下面所有 sigma 數值都是在「全尺寸」解碼上量的；RAW 預設的半尺寸另有一組，
+# 見 NOISE_SIGMA_THRESHOLD_HALF。
 #
 # 校準資料：同一台 Sony ILCE-7M4 的 90 張 ARW，分兩輪盲標
 #   （ISO 與程式算出的數值都不顯示、順序打亂，避免標註者被影響）：
@@ -206,6 +211,36 @@ NOISE_SIGMA_THRESHOLD = 1.43
 #
 # 附註不影響任何分數與狀態判定，純粹是顯示給使用者的說明文字。
 NOISE_SIGMA_HIGH = 2.0
+
+# RAW 以半尺寸解碼時用的門檻（2026-09-25 以同一批 77 張盲標樣本重新校準）。
+#
+# 為什麼要另一組：上面的 1.43 是在全尺寸上校準的，RAW 改成預設半尺寸之後，
+# 同一張照片量出來的 sigma 高 1.4~2.5 倍（半尺寸跳過去馬賽克，雜訊沒有被插值抹平，
+# 細節在每個像素裡也更密）。沿用 1.43 的話，ISO 100~125 的 30 張裡有 7 張被標記、
+# 4 張被寫成「偏高」，完全違背當初「零誤報」的取捨。
+#
+# 半尺寸量測結果：
+#     有雜訊   sigma 2.054 ~ 4.369
+#     乾淨     sigma 0.717 ~ 3.016
+#   重疊區 2.05~3.02 比全尺寸（1.32~1.43）寬得多：兩張 ISO 100、細節很密的乾淨照片
+#   （DSC02032、DSC02033）在半尺寸落到 2.88、3.02，和 ISO 5000 的照片混在一起。
+#
+# 沿用同一個取捨（誤報的代價高於漏報），門檻取在乾淨樣本最大值 3.016 之上：
+#     門檻 2.05   誤報 2 張、漏報  0 張
+#     門檻 3.02   誤報 0 張、漏報 21 張   <- 採用
+#   漏報的 21 張是 ISO 2000~5000。也就是說半尺寸只抓得到明顯的高 ISO 雜訊；
+#   以 325 張實測，ISO 4000~6400 的 65 張只標記 14 張（全尺寸是 65 張全部）。
+#   要完整的雜訊判斷請用 evaluate_photo(path, half_size=False)。
+#
+# 設為 None 則半尺寸時完全不做雜訊判斷。
+NOISE_SIGMA_THRESHOLD_HALF = 3.02
+
+# 半尺寸的分級門檻。有效標註樣本中超過 3.02 的只有兩群：
+# ISO 5000 兩張（3.07、3.08）與 ISO 10000 全部 30 張（3.50 以上），
+# 取兩群中間的 3.3，讓「偏高」對應 ISO 10000 那一群。
+# 已知出入：ISO 400~800 的三張暗部夜景（DSC02141~02143）半尺寸是 3.37~3.97，
+# 會被寫成「偏高」；全尺寸時它們只是「輕微」，人工複查也認為其中兩張「略嚴」。
+NOISE_SIGMA_HIGH_HALF = 3.3
 
 # 雜訊估計取樣設定：在原始解析度上取 GRID x GRID 個 TILE_SIZE 見方的區塊，
 # 把所有未截斷的像素合併成單一樣本池。這與「整張圖計算」是同一個估計量，
@@ -448,26 +483,39 @@ def _estimate_noise_sigma(gray_full):
     return _NOISE_SCALE * total / count
 
 
-def _noise_issue(noise_sigma):
+def _noise_thresholds(raw_half_size):
+    """回傳 (門檻, 分級門檻)。半尺寸解碼的 RAW 用另一組，理由見 NOISE_SIGMA_THRESHOLD_HALF。"""
+    if raw_half_size:
+        return NOISE_SIGMA_THRESHOLD_HALF, NOISE_SIGMA_HIGH_HALF
+    return NOISE_SIGMA_THRESHOLD, NOISE_SIGMA_HIGH
+
+
+def _noise_issue(noise_sigma, raw_half_size=False):
     """
     依雜訊估計值回傳附註文字；未超過門檻、無法估計、或功能停用時回傳 None。
+
+    raw_half_size=True 代表影像是半尺寸解碼的 RAW，改用半尺寸校準的門檻。
 
     分成兩級的理由見 NOISE_SIGMA_HIGH 的說明：
     門檻附近的照片多半只是夜景暗部的輕微顆粒，寫成「偏高」會過度警示。
     """
-    if NOISE_SIGMA_THRESHOLD is None or np.isnan(noise_sigma):
+    threshold, high = _noise_thresholds(raw_half_size)
+    if threshold is None or np.isnan(noise_sigma):
         return None
-    if noise_sigma <= NOISE_SIGMA_THRESHOLD:
+    if noise_sigma <= threshold:
         return None
-    if noise_sigma > NOISE_SIGMA_HIGH:
+    if noise_sigma > high:
         return f"雜訊偏高（噪點指標 {noise_sigma:.2f}），可能是高 ISO 或弱光環境拍攝"
     return f"雜訊輕微（噪點指標 {noise_sigma:.2f}），多半來自暗部或弱光"
 
 
-def _analyze_technical_issues(image):
+def _analyze_technical_issues(image, raw_half_size=False):
     """
     參數:
         image (np.ndarray): 已解碼的 RGB 影像，形狀 (H, W, 3)、dtype uint8。
+        raw_half_size (bool): 影像是不是半尺寸解碼的 RAW。只影響雜訊門檻——
+            同一張照片在半尺寸上量到的雜訊值高 1.4~2.5 倍，用全尺寸的門檻會大量誤報。
+            其餘四項都先縮到 800 寬才計算，兩種尺寸結果相近。
 
     改為接收「已解碼的影像」而非檔案路徑，原因有二：
       1. 原本用 cv2.imread(img_path) 會把同一張圖再解碼一次
@@ -514,10 +562,9 @@ def _analyze_technical_issues(image):
     if underexposed_ratio > UNDEREXPOSED_RATIO_THRESHOLD:
         issues.append(f"曝光不足，死黑區域佔比 {underexposed_ratio * 100:.1f}%")
 
-    # 3. 雜訊估計 —— 目前停用（NOISE_SIGMA_THRESHOLD is None），原因見該常數的說明。
-    # 門檻設回數值即可重新啟用，估計方法本身已修正並驗證過排序正確性。
-    if NOISE_SIGMA_THRESHOLD is not None:
-        issue = _noise_issue(_estimate_noise_sigma(gray_full))
+    # 3. 雜訊估計。門檻設為 None 時整項跳過（估計本身要約 20 ms，停用就不必算）。
+    if _noise_thresholds(raw_half_size)[0] is not None:
+        issue = _noise_issue(_estimate_noise_sigma(gray_full), raw_half_size)
         if issue is not None:
             issues.append(issue)
 
@@ -543,18 +590,14 @@ def _clamp_score(score):
     """
     把模型輸出的分數限制在 0~100。
 
-    為什麼需要這一步：
-      美感模型是拿「二元標籤（0/1）」用 MSE 回歸訓練出來的，
-      而且輸出層只有 Linear、沒有接 sigmoid，
-      所以預測值本來就可能落在 [0, 1] 之外，乘以 100 後就會出現
-      負分或超過 100 分（實測 40 張樣本範圍為 -23.6 ~ 145.1）。
+    現役的兩個模型各自需不需要這一步：
+      美感（分佈模式）：期望值必定在 1~10，換算後天然落在 0~100，裁切不會生效。
+      技術（single 模式）：輸出層只有 Linear、沒有接 sigmoid，理論上可能超出 0~100，
+                         這一步是它的保險。
 
-    這只是止血，不是根治：
-      裁切之後分數看起來合理了，但美感分本質上仍是
-      「二元分類機率 x 100」，與技術分（KonIQ MOS）不是同一種尺度，
-      兩者用 0.6:0.4 加權相加在統計意義上並不嚴謹。
-      根治需要重新訓練美感模型（輸出層加 sigmoid，或改用
-      AVA 原始的 10 級分佈標籤搭配 emd_loss）。
+    這個函式最早是為舊的二元美感模型（nima_best.pth）加的：它用 0/1 標籤配 MSE 訓練，
+    輸出乘以 100 後會出現負分或超過 100 分（實測 40 張樣本範圍 -23.6 ~ 145.1）。
+    換成分佈模型後這個問題已經根治；保留裁切是為了技術模型，以及能退回舊權重做對照。
     """
     return max(SCORE_MIN, min(SCORE_MAX, score))
 
@@ -658,6 +701,22 @@ def combine_scores(aesthetic_score, technical_score,
     return aesthetic_score * w_aes + technical_score * w_tech
 
 
+def _is_half_size_raw(img_path, half_size):
+    """
+    這張照片是不是「以半尺寸解碼的 RAW」。決定雜訊用哪一組門檻。
+
+    img_path 在傳入 image= 時可能是 None 或其他非路徑的值，一律視為非 RAW，
+    也就是沿用全尺寸門檻——與這個參數加入之前的行為相同。
+    """
+    try:
+        ext = os.path.splitext(os.fspath(img_path))[1].lower()
+    except TypeError:
+        return False
+    if ext not in RAW_EXTENSIONS:
+        return False
+    return RAW_HALF_SIZE if half_size is None else bool(half_size)
+
+
 def _fail(message, exc=None):
     """
     統一的失敗出口：記錄原因、印到 console，回傳 None。
@@ -719,10 +778,15 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
 
         half_size (bool, optional): RAW 的解碼尺寸。None 用模組預設（目前為半尺寸，
             見 RAW_HALF_SIZE），False 強制全尺寸。批次掃描用預設就好；
-            要與舊資料一致、或要看細節時傳 False。JPG/PNG 不受影響。
+            要與舊資料一致、或要最準的雜訊判斷時傳 False。JPG/PNG 不受影響。
 
-            [注意] 只有本函式自行解碼時才有作用。傳了 image= 就是呼叫端自己解碼的，
-              尺寸由呼叫端決定——請用 raw_postprocess_params() 取得一致的參數。
+            [注意] 傳了 image= 時，影像是呼叫端自己解碼的，這個參數改為「告訴本函式
+              那張 RAW 是用哪種尺寸解碼的」——雜訊門檻依此選擇（半尺寸另有一組）。
+              請用 raw_postprocess_params(x) 解碼，並在這裡傳同一個 x：
+                  rgb = raw.postprocess(**raw_postprocess_params(half_size=False))
+                  evaluate_photo(path, image=rgb, half_size=False)
+              兩邊都不傳就是兩邊都用模組預設，自然一致。
+              判斷是不是 RAW 看的是 img_path 的副檔名，所以傳 image= 時仍要給真實路徑。
 
     回傳:
         dict: 包含美感分數、技術分數、綜合分數、系統建議與技術問題細項的字典，
@@ -777,10 +841,10 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
             score_tech = _output_to_score(MODEL_TECH(img_tensor), TECH_MODE)
 
         # 3. 分數裁切到 0~100
-        # 必須在算綜合分「之前」裁切，否則超出範圍的美感分會把綜合分一起拉出範圍
-        # （實測有一張 美感=145.09 導致 綜合=116.67）。
-        # 後面的狀態判定門檻（score_tech < 60、score_aes > 85）也一併吃裁切後的值，
-        # 確保整份結果的每個數字都在同一個一致的區間內。
+        # 必須在算綜合分「之前」裁切，否則超出範圍的分數會把綜合分一起拉出範圍
+        # （舊二元美感模型時期實測有一張 美感=145.09 導致 綜合=116.67）。
+        # 後面的狀態判定（TECH_ISSUE_THRESHOLD、AESTHETIC_EXCELLENT_THRESHOLD）
+        # 也一併吃裁切後的值，確保整份結果的每個數字都在同一個一致的區間內。
         score_aes = _clamp_score(score_aes)
         score_tech = _clamp_score(score_tech)
 
@@ -792,25 +856,26 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
 
         # 5. 傳統影像分析：無條件執行，不再由技術分決定要不要跑
         # 技術分（KonIQ MOS）與細項分析量的是不同東西：
-        #   技術分  —— 學習自 10,073 張人工評分的「整體感知品質」，
+        #   技術分  —— 學習自 KonIQ-10k 人工評分的「整體感知品質」（訓練集 8,058 張），
         #              擅長模糊、雜訊、壓縮失真這類「失真」問題。
         #   細項分析 —— 曝光、對比這類技術分本來就不擅長判斷的面向
         #              （KonIQ 的標註裡沒有曝光這個維度）。
         # 舊版把後者掛在前者之下，等於用一個訊號去決定要不要看另一個訊號，
         # 結果是技術分高的照片即使明顯欠曝也完全不會被檢查。
-        technical_issues = _analyze_technical_issues(image)
+        technical_issues = _analyze_technical_issues(
+            image, raw_half_size=_is_half_size_raw(img_path, half_size))
 
         # 6. 根據兩個獨立訊號給予綜合評價
         # 狀態只由「技術分」決定，影像量測結果僅作為補充說明，不影響狀態。
         #
         # 為什麼量測結果不參與狀態判定：
-        #   技術分是驗證過的訊號——在 2,015 張未參與訓練的 KonIQ 照片上
-        #   PLCC 0.8056、SRCC 0.7636，與人類評分高度一致。
+        #   技術分是驗證過的訊號——在 KonIQ 驗證集 2,015 張（未參與訓練）上
+        #   PLCC 0.8315、SRCC 0.7953，與人類評分高度一致。
         #   而傳統量測的門檻沒有經過同等驗證，更關鍵的是：
         #   量測值本身正確，不代表它就是「缺陷」。
         #   例如刻意以黑色為背景的照片，死黑比例本來就高（實測 AVA 樣本中
         #   有照片達 72.5%），那是創作選擇而非曝光失誤；若讓它把一張
-        #   美感 100 分的照片降級成「警告」，只會製造誤導。
+        #   美感分很高的照片降級成「警告」，只會製造誤導。
         #   因此讓已驗證的訊號決定狀態，未驗證的量測值只提供客觀數據。
         low_tech = score_tech < TECH_ISSUE_THRESHOLD
 
