@@ -6,6 +6,8 @@
       無法在原地重現「找不到權重」的情境。
   B20 測的是腳本的離開代碼與副作用，本來就該以腳本方式執行。
 """
+import contextlib
+import io
 import os
 import shutil
 import subprocess
@@ -195,6 +197,142 @@ class TestSplitDataNeverWritesItsSource(unittest.TestCase):
         result = _run(self.sandbox / 'split_data.py', self.sandbox)
         self.assertEqual(result.returncode, 1)
         self.assertIn('train_full.csv', result.stdout, '應指出缺少哪個來源檔')
+
+
+class TestSplitKoniqHelp(unittest.TestCase):
+    """
+    split_koniq.py 原本整支是模組層級的程式碼，連 --help 都會直接切分、寫檔。
+    這裡在沙盒裡放一份小的來源檔：舊版遇到 --help 會照樣寫出 train_tech.csv。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.sandbox = Path(self.tmp.name)
+        (self.sandbox / 'data' / 'koniq').mkdir(parents=True)
+        rows = '\n'.join(f'{i}.jpg,{40 + i}' for i in range(10))
+        (self.sandbox / 'data' / 'koniq' / 'koniq10k_distributions_sets.csv').write_text(
+            'image_name,MOS\n' + rows + '\n', encoding='utf-8')
+
+    def test_help_does_not_write_anything(self):
+        result = _run(PROJECT_ROOT / 'split_koniq.py', self.sandbox, args=('--help',))
+        self.assertEqual(result.returncode, 0, result.stderr[-400:])
+        self.assertFalse((self.sandbox / 'data' / 'train_tech.csv').exists(),
+                         '--help 不該開始切分')
+
+    def test_normal_run_still_splits_80_20(self):
+        result = _run(PROJECT_ROOT / 'split_koniq.py', self.sandbox)
+        self.assertEqual(result.returncode, 0, result.stderr[-400:])
+        train = (self.sandbox / 'data' / 'train_tech.csv').read_text(encoding='utf-8')
+        val = (self.sandbox / 'data' / 'val_tech.csv').read_text(encoding='utf-8')
+        self.assertEqual(len(train.strip().splitlines()) - 1, 8)
+        self.assertEqual(len(val.strip().splitlines()) - 1, 2)
+
+    def test_missing_source_is_an_error(self):
+        with tempfile.TemporaryDirectory() as empty:
+            result = _run(PROJECT_ROOT / 'split_koniq.py', Path(empty))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('[FAIL]', result.stdout)
+
+
+class TestDatabaseBackup(unittest.TestCase):
+    """
+    reset_db_analysis.py 的備份原本用 shutil.copy2 直接複製 .db 檔。
+    資料庫若是 WAL 模式，最近寫入的資料還在 -wal 檔裡，只複製主檔的備份會少掉它們。
+    """
+
+    def test_backup_includes_data_still_in_the_wal_file(self):
+        import sqlite3
+        from contextlib import closing
+        import reset_db_analysis
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / 'photos.db'
+            writer = sqlite3.connect(db)
+            try:
+                writer.execute('PRAGMA journal_mode=WAL')
+                writer.execute('PRAGMA wal_autocheckpoint=0')   # 讓資料留在 -wal 檔
+                writer.execute('CREATE TABLE photos (id INTEGER PRIMARY KEY, aesthetic_score REAL)')
+                writer.execute('INSERT INTO photos (aesthetic_score) VALUES (55.5)')
+                writer.commit()
+
+                # 測試前提：直接複製主檔的備份會漏掉這筆資料
+                naive = Path(tmp) / 'naive.db'
+                shutil.copy2(db, naive)
+                with closing(sqlite3.connect(naive)) as con:
+                    try:
+                        naive_rows = con.execute('SELECT COUNT(*) FROM photos').fetchone()[0]
+                    except sqlite3.OperationalError:
+                        naive_rows = 0
+                self.assertEqual(naive_rows, 0, '測試前提失效：資料已經不在 -wal 檔裡')
+
+                backup = Path(tmp) / 'backup.db'
+                with closing(sqlite3.connect(db)) as reader:
+                    reset_db_analysis.backup_database(reader, backup)
+                with closing(sqlite3.connect(backup)) as con:
+                    rows = con.execute('SELECT aesthetic_score FROM photos').fetchall()
+            finally:
+                writer.close()
+        self.assertEqual(rows, [(55.5,)])
+
+
+class TestTrainingReportsWhenNothingWasSaved(unittest.TestCase):
+    """
+    訓練從頭到尾沒有任何一個 epoch 改善時（例如相關係數全是 nan），
+    原本仍印「權重儲存於 …」，但檔案其實沒寫。用了 --force 時磁碟上還是舊權重，
+    看起來卻像訓練成功。
+
+    資料集、DataLoader 與訓練迴圈都換成假的，只測 main() 最後怎麼收尾；
+    不需要資料集，也不下載預訓練權重。
+    """
+
+    SCRIPTS = (('train_nima', 'AVADataset'), ('train_tech', 'KonIQDataset'))
+
+    def _run_main(self, module_name, dataset_name, val_metrics, save):
+        import importlib
+        from common import NIMABaseline as real_model
+
+        module = importlib.import_module(module_name)
+        fakes = {
+            dataset_name: lambda *a, **k: [],
+            'DataLoader': lambda *a, **k: [],
+            'NIMABaseline': lambda output_mode='single', pretrained=False:
+                real_model(output_mode=output_mode, pretrained=False),
+            'run_epoch': lambda *a, **k: (0.0, *val_metrics) if k.get('collect_metrics') else 0.0,
+        }
+        originals = {name: getattr(module, name) for name in fakes}
+        argv = sys.argv
+        try:
+            for name, fake in fakes.items():
+                setattr(module, name, fake)
+            sys.argv = [f'{module_name}.py', '--save', str(save), '--epochs', '2']
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = module.main()
+        finally:
+            for name, original in originals.items():
+                setattr(module, name, original)
+            sys.argv = argv
+        return code, out.getvalue()
+
+    def test_all_nan_metrics_fail_and_write_nothing(self):
+        for module_name, dataset_name in self.SCRIPTS:
+            with self.subTest(script=module_name), tempfile.TemporaryDirectory() as tmp:
+                save = Path(tmp) / 'weights.pth'
+                code, out = self._run_main(module_name, dataset_name,
+                                           (float('nan'), float('nan')), save)
+                self.assertEqual(code, 1)
+                self.assertFalse(save.exists())
+                self.assertIn('[FAIL]', out)
+                self.assertNotIn('權重儲存於', out)
+
+    def test_improving_run_still_saves(self):
+        for module_name, dataset_name in self.SCRIPTS:
+            with self.subTest(script=module_name), tempfile.TemporaryDirectory() as tmp:
+                save = Path(tmp) / 'weights.pth'
+                code, out = self._run_main(module_name, dataset_name, (0.5, 0.5), save)
+                self.assertEqual(code, 0)
+                self.assertTrue(save.exists())
+                self.assertIn('權重儲存於', out)
 
 
 if __name__ == '__main__':

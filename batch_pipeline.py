@@ -1,30 +1,45 @@
 import json
 import math
-from collections import deque
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import ai_inference
 
 
-SUPPORTED_EXTENSIONS = ai_inference.RAW_EXTENSIONS | {
-    ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff",
-}
+# 與 score.py、前台共用同一份清單（見 ai_inference.IMAGE_EXTENSIONS）
+SUPPORTED_EXTENSIONS = ai_inference.IMAGE_EXTENSIONS
 
 
-def collect_photos(folder):
-    """遞迴收集資料夾中的照片。"""
+def scan_folder(folder):
+    """
+    遞迴掃描資料夾，回傳 (照片清單, 略過的照片數)。
+
+    略過的照片數是 {副檔名: 張數}，只計 ai_inference.UNSUPPORTED_PHOTO_EXTENSIONS
+    裡的格式（例如 iPhone 的 .heic）。.xmp 等附屬檔本來就不是照片，不列入。
+    """
     folder = Path(folder).expanduser().resolve()
 
     if not folder.is_dir():
         raise ValueError(f"不是有效資料夾：{folder}")
 
-    return sorted(
-        path
-        for path in folder.rglob("*")
-        if path.is_file()
-        and path.suffix.lower() in SUPPORTED_EXTENSIONS
-    )
+    photos = []
+    skipped = Counter()
+    for path in folder.rglob("*"):
+        if not path.is_file():
+            continue
+        ext = path.suffix.lower()
+        if ext in SUPPORTED_EXTENSIONS:
+            photos.append(path)
+        elif ext in ai_inference.UNSUPPORTED_PHOTO_EXTENSIONS:
+            skipped[ext] += 1
+
+    return sorted(photos), dict(skipped)
+
+
+def collect_photos(folder):
+    """遞迴收集資料夾中的照片。需要知道略過了哪些照片時改用 scan_folder()。"""
+    return scan_folder(folder)[0]
 
 
 def analyze_batch(paths, output_path, aesthetic_weight=0.6,

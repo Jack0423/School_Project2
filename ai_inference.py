@@ -119,6 +119,17 @@ RAW_EXTENSIONS = {
     '.raf', '.orf', '.rw2', '.pef', '.srw', '.dcr',
 }
 
+# 本模組讀得了的所有副檔名（RAW 交給 rawpy，其餘交給 PIL）。
+# 掃資料夾的程式（score.py、batch_pipeline.py、前台）一律用這一份，
+# 不要各自抄一份——原本兩份清單就已經不一致（一份有 .webp、一份沒有）。
+IMAGE_EXTENSIONS = RAW_EXTENSIONS | {
+    '.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp',
+}
+
+# 常見、但本模組讀不了的照片格式。掃資料夾遇到時要告訴使用者略過了幾張，
+# 不能安靜地當作不存在——例如 iPhone 預設存 HEIC，整個資料夾可能一張都沒被分析。
+UNSUPPORTED_PHOTO_EXTENSIONS = {'.heic', '.heif', '.avif', '.jxl'}
+
 # RAW 預設以「半尺寸」解碼（rawpy 的 half_size：2x2 像素合成一個，跳過去馬賽克）。
 #
 # 為什麼：解碼佔整個流程 83.5% 的時間，是真正的瓶頸。
@@ -285,7 +296,9 @@ _MODEL_VERSION_CACHE = None
 # 否則修改前存進去的分數會和修改後的混在同一份清單裡排序，不會有任何錯誤訊息。
 #   1  2026-09-23 以前（commit 252261c 為止）
 #   2  2026-09-25  JPG 依 EXIF 方向轉正（直幅照片的分數會改變）；
-#                  RAW 半尺寸改用另一組雜訊門檻（只改附註文字，分數不變）
+#                  RAW 半尺寸改用另一組雜訊門檻（只改附註文字，分數不變）；
+#                  16-bit 灰階 PNG／TIFF 改為正確縮放（原本整張被當成白色）。
+#                  三者同一天完成、當時還沒有任何資料庫存過 rev=2，所以合併成同一版。
 SCORING_REVISION = 2
 
 
@@ -441,6 +454,16 @@ def _load_image_array(img_path, half_size=None):
         # 只在標記不是 1 時才轉，沒有標記或本來就正的照片不會多複製一次整張影像。
         if im.getexif().get(_EXIF_ORIENTATION, 1) != 1:
             im = ImageOps.exif_transpose(im)
+
+        # 16-bit 灰階（PNG／TIFF 的 I;16、I 模式）要自己縮成 8-bit。
+        # PIL 的 convert('RGB') 對這種模式不縮放，而是把超過 255 的值直接截斷成 255，
+        # 實測一張 0~65535 的漸層轉完平均亮度 254.5、100% 是純白——安靜地拿白紙去評分。
+        # 16-bit 的 RGB 圖 PIL 會正確處理，不走這裡。
+        if im.mode == 'I' or im.mode.startswith('I;16'):
+            gray = np.asarray(im).astype(np.int64)
+            gray = (np.clip(gray, 0, 65535) >> 8).astype(np.uint8)
+            return np.dstack([gray, gray, gray])
+
         return np.array(im.convert('RGB'))
 
 

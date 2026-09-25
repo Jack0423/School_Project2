@@ -27,6 +27,7 @@ PLCC 一併列出作為參考，但跨尺度比較時不應作為主要依據。
 import argparse
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -37,6 +38,15 @@ from scipy.stats import pearsonr, spearmanr
 from common import NIMABaseline, build_transform
 
 SCORE_LEVELS = np.arange(1, 11)
+
+# 相對路徑一律以專案資料夾為基準，不依賴「從哪裡執行」。
+# 原本權重檔寫成相對路徑，從別的資料夾執行時三個模型都會顯示「權重檔不存在，略過」。
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def in_project(path):
+    path = Path(path)
+    return path if path.is_absolute() else BASE_DIR / path
 
 
 def load_model(path, mode, device):
@@ -69,6 +79,7 @@ def main():
     p.add_argument('--val-csv', default='data/ava_val.csv')
     p.add_argument('--img-dir', default='data/dataset')
     args = p.parse_args()
+    args.val_csv, args.img_dir = in_project(args.val_csv), in_project(args.img_dir)
 
     df = pd.read_csv(args.val_csv)
     if 'mean_score' not in df.columns:
@@ -99,7 +110,8 @@ def main():
 
     results = []
     for label, path, mode, note in candidates:
-        if not os.path.exists(path):
+        path = in_project(path)
+        if not path.exists():
             print(f'{label:<18}{note:<26}{"(權重檔不存在，略過)":>40}')
             continue
         model = load_model(path, mode, device)

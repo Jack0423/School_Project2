@@ -103,13 +103,20 @@ def _auc(scores, labels):
     return (ranks[labels == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
 
 
+def in_project(path):
+    """相對路徑以專案資料夾為基準，不依賴「從哪裡執行」（權重檔本來就是這樣找的）。"""
+    return path if os.path.isabs(path) else os.path.join(ai.BASE_DIR, path)
+
+
 def evaluate(name, model, csv_path, img_dir, add_suffix):
-    if not os.path.exists(csv_path):
+    # 讀檔用解析後的路徑；結果裡記錄的仍是使用者給的寫法，不把個人磁碟路徑寫進 JSON
+    csv_file, img_dir = in_project(csv_path), in_project(img_dir)
+    if not os.path.exists(csv_file):
         print(f'  {name}：找不到 {csv_path}，略過')
         return None
 
     started = time.perf_counter()
-    preds, labels, skipped, info = _predict(model, csv_path, img_dir, add_suffix)
+    preds, labels, skipped, info = _predict(model, csv_file, img_dir, add_suffix)
     elapsed = time.perf_counter() - started
 
     if len(preds) == 0:

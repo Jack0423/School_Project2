@@ -203,6 +203,15 @@ def main():
 
         scheduler.step()
 
+    # 沒有任何一個 epoch 存過權重：相關係數每次都是 nan（預測值全部相同時會發生）。
+    # 原本這裡照樣印「權重儲存於 …」，但檔案其實沒寫——用了 --force 時更糟，
+    # 磁碟上留著的還是舊權重，看起來卻像訓練成功。
+    if best_val_metric == -float('inf'):
+        print("\n[FAIL] 訓練結束，但沒有任何一個 epoch 的 PLCC/SRCC 是有效數字，沒有儲存權重。")
+        print(f"   {SAVE_PATH} 沒有被寫入（若原本就存在，內容仍是舊的）。")
+        print("   請檢查上面每個 epoch 的 PLCC/SRCC 是否為 nan：通常代表標籤或影像讀取有問題。")
+        return 1
+
     print(f"\n[ OK ] 訓練完成！最佳 PLCC/SRCC 平均: {best_val_metric:.4f}，權重儲存於 {SAVE_PATH}")
     return 0
 

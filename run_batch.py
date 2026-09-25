@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from batch_pipeline import collect_photos, analyze_batch
+from batch_pipeline import analyze_batch, scan_folder
 
 
 def show_progress(done, total, record):
@@ -22,7 +22,12 @@ def main():
     parser.add_argument("--output", default="batch_results.jsonl")
     args = parser.parse_args()
 
-    paths = collect_photos(args.folder)
+    paths, skipped = scan_folder(args.folder)
+
+    if skipped:
+        detail = "、".join(f"{ext} {n} 張" for ext, n in sorted(skipped.items()))
+        print(f"[WARN] 略過不支援的照片格式：{detail}。"
+              f"｜請先轉成 JPG（例如 iPhone 可在「設定 > 相機 > 格式」改存「最相容」）")
 
     if not paths:
         print("資料夾內沒有支援的照片。")

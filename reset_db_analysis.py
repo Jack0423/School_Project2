@@ -33,7 +33,7 @@
 --------
   * 預設為試算（dry run），只印出「打算做什麼」，不寫入任何東西。
     真正要執行必須明確加上 --apply。
-  * --apply 會先把整個資料庫檔複製一份備份，才開始修改。
+  * --apply 會先把整個資料庫備份一份（用 SQLite 的 backup API，WAL 模式也完整），才開始修改。
   * 欄位不是猜死的：先讀 PRAGMA table_info 取得實際 schema，
     再以關鍵字比對，並把「比對到的」與「沒比對到的」全部印出來供人工核對。
     比對不到任何分數欄位時直接中止，不會憑空亂改。
@@ -48,12 +48,11 @@
 
 長期建議
 --------
-本腳本是一次性的補救。要根治應在資料表加一個 model_version 欄位，
-記錄每筆分數是哪一版模型算的，日後換模型時只需重跑版本不符的照片，
-而不是像現在這樣只能整批清空。
+本腳本是一次性的補救。根治的做法已經就緒：ai_inference.model_version() 回傳
+「權重＋解碼設定＋評分流程版本」的字串，前台每筆分數存一份，
+日後換模型或改算法時只需重跑版本不符的照片，不必像這樣整批清空。
 """
 import argparse
-import shutil
 import sqlite3
 import sys
 from datetime import datetime
@@ -106,6 +105,21 @@ def _quote(identifier):
     識別字內部的雙引號以連續兩個雙引號跳脫，與 SQLite 的規則一致。
     """
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def backup_database(con, backup_path):
+    """
+    用 SQLite 的 backup API 把整個資料庫複製到 backup_path。
+
+    不用 shutil.copy 直接複製 .db 檔：資料庫若是 WAL 模式，最近寫入的資料還在
+    旁邊的 -wal 檔裡、沒合併回主檔，只複製主檔的備份會少掉那些資料，而且不會報錯。
+    backup API 透過連線讀出一份完整、一致的快照，不管是哪種日誌模式都正確。
+    """
+    dst = sqlite3.connect(backup_path)
+    try:
+        con.backup(dst)
+    finally:
+        dst.close()
 
 
 def _matches(column, keywords):
@@ -198,7 +212,7 @@ def main():
 
         backup = db_path.with_name(
             f'{db_path.stem}.backup-{datetime.now():%Y%m%d-%H%M%S}{db_path.suffix}')
-        shutil.copy2(db_path, backup)
+        backup_database(con, backup)
         print(f'[ OK ] 已備份原始資料庫：{backup.name}')
 
         sets = ([f'{_quote(c)} = NULL' for c in scores]

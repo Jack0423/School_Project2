@@ -167,6 +167,13 @@ def main():
 
         scheduler.step()
 
+    # 沒有任何一個 epoch 存過權重：理由與 train_nima.py 相同，不要印出「已儲存」誤導人。
+    if best_val_metric == -float('inf'):
+        print("\n[FAIL] 訓練結束，但沒有任何一個 epoch 的 PLCC/SRCC 是有效數字，沒有儲存權重。")
+        print(f"   {SAVE_PATH} 沒有被寫入（若原本就存在，內容仍是舊的）。")
+        print("   請檢查上面每個 epoch 的 PLCC/SRCC 是否為 nan：通常代表標籤或影像讀取有問題。")
+        return 1
+
     print(f"\n[ OK ] 訓練完成！最佳 PLCC/SRCC 平均: {best_val_metric:.4f}，權重儲存於 {SAVE_PATH}")
     return 0
 

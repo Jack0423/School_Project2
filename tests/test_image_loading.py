@@ -23,6 +23,19 @@ class TestFormatDispatch(unittest.TestCase):
             with self.subTest(ext=ext):
                 self.assertIn(ext, ai.RAW_EXTENSIONS)
 
+    def test_one_shared_extension_list(self):
+        """
+        掃資料夾的程式共用 ai_inference.IMAGE_EXTENSIONS。
+        原本 score.py 與 batch_pipeline.py 各抄一份，已經不一致（只有一份有 .webp）。
+        """
+        import batch_pipeline
+        import score
+        self.assertTrue(ai.RAW_EXTENSIONS <= ai.IMAGE_EXTENSIONS)
+        self.assertIn('.jpg', ai.IMAGE_EXTENSIONS)
+        self.assertIs(batch_pipeline.SUPPORTED_EXTENSIONS, ai.IMAGE_EXTENSIONS)
+        self.assertIs(score.IMAGE_EXTENSIONS, ai.IMAGE_EXTENSIONS)
+        self.assertFalse(ai.UNSUPPORTED_PHOTO_EXTENSIONS & ai.IMAGE_EXTENSIONS)
+
     def test_raw_extensions_are_lowercase(self):
         """副檔名比對前會轉小寫，集合內若混入大寫就永遠比不中。"""
         for ext in ai.RAW_EXTENSIONS:
@@ -42,6 +55,33 @@ class TestFormatDispatch(unittest.TestCase):
             path = write_image(make_image(200, 150), Path(tmp) / 'x.png')
             arr = ai._load_image_array(path)
         self.assertEqual(arr.shape[:2], (150, 200))
+
+    def test_sixteen_bit_grayscale_is_scaled_not_clipped(self):
+        """
+        16-bit 灰階圖（PIL 的 I;16 模式）必須縮成 8-bit，不能被截斷成純白。
+        修正前一張 0~65535 的漸層讀進來平均亮度 254.5、100% 是 255——拿白紙去評分。
+        """
+        import cv2
+        gradient = np.linspace(0, 65535, 256 * 256).reshape(256, 256).astype(np.uint16)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'gray16.png')
+            cv2.imwrite(path, gradient)
+            with Image.open(path) as im:
+                self.assertTrue(im.mode.startswith('I'), f'測試前提：應為 16-bit 模式，實際 {im.mode}')
+            arr = ai._load_image_array(path)
+        self.assertEqual(arr.dtype, np.uint8)
+        self.assertEqual(arr.shape, (256, 256, 3))
+        self.assertAlmostEqual(float(arr.mean()), 127.5, delta=2)
+        self.assertTrue(np.array_equal(arr[..., 0], (gradient >> 8).astype(np.uint8)))
+
+    def test_sixteen_bit_rgb_still_loads_correctly(self):
+        import cv2
+        gradient = np.linspace(0, 65535, 128 * 128).reshape(128, 128).astype(np.uint16)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'rgb16.tif')
+            cv2.imwrite(path, np.dstack([gradient] * 3))
+            arr = ai._load_image_array(path)
+        self.assertAlmostEqual(float(arr.mean()), 127.5, delta=2)
 
     def test_non_ascii_filename_loads(self):
         """中文檔名曾是專案裡特別處理過的路徑，確保仍然可用。"""

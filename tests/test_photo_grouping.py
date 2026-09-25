@@ -5,6 +5,9 @@
 因此在任何一台機器上都能跑。
 """
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +17,7 @@ import photo_grouping
 from burst_metadata import build_burst_check, camera_identity, parse_capture_time
 from photo_grouping import group_photos
 from pick_best import rank_photos
+from tests._util import PROJECT_ROOT, requires_weights
 
 
 def record(path, score, feature, weight=0.6, ok=True):
@@ -268,6 +272,71 @@ class TestPickBest(unittest.TestCase):
             ])
             ranked = rank_photos(path)
         self.assertEqual([Path(p['path']).name for p in ranked], ['a.jpg'])
+
+    def test_warning_threshold_matches_grouping(self):
+        """提醒門檻原本預設 0.9，和分組用的 0.85 不一致：同一組的照片也可能被提醒「不像同一組」。"""
+        result = _run_script('pick_best.py', '--help')
+        self.assertEqual(result.returncode, 0, result.stderr[-400:])
+        self.assertIn(str(photo_grouping.DEFAULT_THRESHOLD), result.stdout)
+
+
+def _run_script(name, *args, cwd=None):
+    env = dict(os.environ, PYTHONIOENCODING='utf-8')
+    return subprocess.run([sys.executable, str(PROJECT_ROOT / name), *args],
+                          cwd=str(cwd or PROJECT_ROOT), env=env,
+                          capture_output=True, text=True, encoding='utf-8')
+
+
+class TestMissingMetadata(unittest.TestCase):
+    """
+    連拍模式讀不到中繼資料的照片，要明確告訴使用者。
+
+    run_batch.py 會掃子資料夾，ExifTool 不加 -r 卻只讀最上層：
+    子資料夾的照片讀不到拍攝時間、永遠分不進連拍組，而原本的統計只數得到
+    「有中繼資料的照片」，使用者只會看到組數變少，完全不知道原因。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.top = str((base / 'top.jpg').resolve())
+        self.nested = str((base / 'sub' / 'nested.jpg').resolve())
+        self.jsonl = write_jsonl(self.tmp.name, [
+            record(self.top, 70.0, feature(1.0)),
+            record(self.nested, 60.0, feature(1.01)),
+        ])
+        # 模擬 ExifTool 沒加 -r：只有最上層那張
+        self.meta = write_metadata(self.tmp.name, [
+            {'SourceFile': self.top, 'Make': 'SONY', 'Model': 'ILCE-7M4',
+             'SubSecDateTimeOriginal': '2026:05:13 21:55:35.32+08:00'}])
+
+    def test_reports_photos_missing_from_metadata(self):
+        missing = burst_metadata.paths_without_metadata([self.top, self.nested], self.meta)
+        self.assertEqual(missing, [self.nested])
+
+    def test_run_bursts_prints_the_warning(self):
+        out = str(Path(self.tmp.name) / 'burst_groups.json')
+        result = _run_script('run_bursts.py', self.jsonl, self.meta, '--output', out)
+        self.assertEqual(result.returncode, 0, result.stderr[-400:])
+        self.assertIn('有 1 張', result.stdout)
+        self.assertIn('-r', result.stdout)
+
+
+@requires_weights   # batch_pipeline 會 import ai_inference，連帶載入模型
+class TestScanFolder(unittest.TestCase):
+    """掃資料夾時，讀不了的照片格式（例如 iPhone 的 .heic）要回報張數，不能當作不存在。"""
+
+    def test_counts_unsupported_photos_and_recurses(self):
+        from batch_pipeline import scan_folder
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'sub').mkdir()
+            for name in ('a.jpg', 'sub/b.ARW', 'c.HEIC', 'sub/d.heic', 'a.xmp', 'notes.txt'):
+                (base / name).write_bytes(b'')
+            photos, skipped = scan_folder(base)
+        self.assertEqual(sorted(p.name for p in photos), ['a.jpg', 'b.ARW'])
+        self.assertEqual(skipped, {'.heic': 2}, '.xmp 等附屬檔不該被當成略過的照片')
 
 
 if __name__ == '__main__':

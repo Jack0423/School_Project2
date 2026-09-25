@@ -25,7 +25,7 @@ import argparse
 import json
 from pathlib import Path
 
-from photo_grouping import load_photos, unit_features
+from photo_grouping import DEFAULT_THRESHOLD, load_photos, unit_features
 
 
 def rank_photos(input_path):
@@ -66,8 +66,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="把整批照片當成同一組連拍，挑出建議保留的那一張")
     parser.add_argument("input", help="run_batch.py 產生的 JSONL")
-    parser.add_argument("--threshold", type=float, default=0.9,
-                        help="相似度低於此值只會印出提醒，不會排除照片（預設 0.9）")
+    # 與自動分組用同一個門檻：分組時「算同一組」的標準，也就是這裡「看起來不像同一組」的標準
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
+                        help=f"相似度低於此值只會印出提醒，不會排除照片（預設 {DEFAULT_THRESHOLD}）")
     parser.add_argument("--output", default="best_pick.json")
     args = parser.parse_args()
 

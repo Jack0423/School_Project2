@@ -149,7 +149,7 @@ result = evaluate_photo("path/to/photo.jpg")
   資料庫每筆分數存一份，之後換模型**或改了評分算法**，只要重跑版本對不上的那些，不必整批清空重來。
   評分時傳了 `half_size=False`，這裡也要傳 `model_version(half_size=False)`。
   最後的 `rev` 在權重沒換、但程式改變了評分結果時遞增（`SCORING_REVISION`，目前為 2：
-  JPG 轉正與半尺寸雜訊門檻）。
+  JPG 轉正、半尺寸雜訊門檻、16-bit 灰階圖正確縮放）。
 - **需要特徵向量時**：`evaluate_photo(p, return_features=True)` 會多回傳 `feature_vector`
   （美感模型分類頭之前的 1280 維特徵，給相似照片分組用）。預設不回傳，回傳格式與上面相同。
 
@@ -183,8 +183,12 @@ python pick_best.py batch_01.jsonl --output best_pick.json
   需要先用 [ExifTool](https://exiftool.org/) 匯出：
 
   ```bash
-  exiftool -json -SubSecDateTimeOriginal -DateTimeOriginal -Make -Model -SerialNumber -InternalSerialNumber <資料夾> > photo_metadata.json
+  exiftool -r -json -SubSecDateTimeOriginal -DateTimeOriginal -Make -Model -SerialNumber -InternalSerialNumber <資料夾> > photo_metadata.json
   ```
+
+  `-r` 不能省：`run_batch.py` 會掃子資料夾，ExifTool 不加 `-r` 就只讀最上層，
+  子資料夾的照片讀不到拍攝時間、永遠分不進連拍組。`run_bursts.py` 會列出
+  「批次結果裡有、中繼資料裡沒有」的張數，看到這個警告就是這裡出了問題。
 
   `--camera-match` 決定相機識別的嚴格程度：`serial` 只認機身序號；`model`（預設）
   序號讀不到時退到廠牌＋型號；`ignore` 不比對相機，只看拍攝時間。
@@ -200,6 +204,7 @@ python pick_best.py batch_01.jsonl --output best_pick.json
   不依賴 EXIF 也不受相似度門檻影響；相似度只在偏低時印出提醒，不會排除照片。
 
 四者的輸出都含照片的絕對路徑，已列入 `.gitignore`。輸出檔已存在時會拒絕覆寫。
+`run_batch.py` 遇到讀不了的照片格式（例如 iPhone 的 `.heic`）會列出略過的張數；支援哪些格式以 `ai_inference.IMAGE_EXTENSIONS` 為準，前台掃資料夾也請用這一份。
 
 門檻 0.85 與 5 秒是 2026-09-23 用 325 張 ARW 的人工標註校準出來的：原本的 0.9 / 2 秒，抽查 15 張未分組照片有 11 張其實有同伴被漏掉；放寬後救回 9 張，且重新標註「有變動的 35 組」沒有出現錯誤合併（連同第一輪的 105 組，共 140 組人工判斷、0 組誤分）。詳見 `photo_grouping.py` 與 `burst_metadata.py` 的常數說明。
 
@@ -371,5 +376,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 176 個測試。
+目前共 189 個測試。
 細節見 [tests/README.md](tests/README.md)。

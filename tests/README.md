@@ -23,11 +23,11 @@ python -m unittest tests.test_evaluate_photo -v
 |---|---|
 | `test_model.py` | batch size 為 1 時輸出不可被壓成 0 維（B9）；權重能以 `strict=True` 載入，確保訓練與推論共用同一份架構定義（B6）；`return_features=True` 不可改變輸出，特徵形狀為 (N, 1280) |
 | `test_transforms.py` | 推論與驗證必須使用完全相同的前處理（B7）。前處理若改回 `Resize((224,224))` 壓扁長寬比，技術模型的 SRCC 會少 0.0317 |
-| `test_image_loading.py` | RAW 檔依副檔名分流給 rawpy，不可讓 PIL 讀到內嵌縮圖（B1、B2）；`image=` 參數的格式驗證；RAW 預設為半尺寸解碼，且 `half_size=False` 仍取得完整解析度（雜訊必須在原始解析度上估計，這條路不能被關掉）；JPG 必須依 EXIF 方向轉正，沒有方向標記的照片必須與修正前逐位元相同；公開的 `load_image()` 與內部解碼完全相同 |
+| `test_image_loading.py` | RAW 檔依副檔名分流給 rawpy，不可讓 PIL 讀到內嵌縮圖（B1、B2）；`image=` 參數的格式驗證；RAW 預設為半尺寸解碼，且 `half_size=False` 仍取得完整解析度（雜訊必須在原始解析度上估計，這條路不能被關掉）；JPG 必須依 EXIF 方向轉正，沒有方向標記的照片必須與修正前逐位元相同；公開的 `load_image()` 與內部解碼完全相同；16-bit 灰階圖必須縮成 8-bit 而不是被截斷成純白；掃資料夾的程式共用 `ai_inference.IMAGE_EXTENSIONS` 一份清單 |
 | `test_evaluate_photo.py` | 回傳格式合約（前台依賴）；分數必須落在 0–100（A5）；失敗原因要能分辨根因（A4）；狀態只由技術分決定、量測結果不參與（丙案）；`return_features=True` 只多一個 `feature_vector`（1280 個有限浮點數），其他欄位一個都不能變；`model_version()` 在權重內容、解碼尺寸（含單次呼叫的 `half_size`）或評分流程版本改變時必須跟著變（訓練腳本 `--force` 會存成同一個檔名）；直幅 JPG 的分數必須等於手動轉正後的分數；RAW 以半尺寸解碼時（包含呼叫端自己解碼後傳 `image=`）雜訊必須改用半尺寸門檻，JPG 與 `half_size=False` 維持全尺寸門檻 |
 | `test_technical_analysis.py` | 雜訊門檻已用 77 張人工盲標樣本校準（全尺寸 1.43、半尺寸 3.02，都是零誤報），同一個數值在兩種尺寸下要用各自的門檻，乾淨影像不可被標記為有雜訊；細節影像會超過門檻是已知限制，用測試記錄下來；分析不可自己從硬碟讀檔（B3）；小於分析寬度的影像不可被放大（B19）；雜訊必須在原始解析度上估計（B11） |
-| `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20） |
-| `test_photo_grouping.py` | 三種挑選模式。相機識別讀不到 `SerialNumber` 時要能退到 `InternalSerialNumber` 與型號（Sony 的 JPG 沒有序號欄位，只認序號會讓整個資料夾得到 0 組且不報錯）；小數秒要能解析（ExifTool 寫兩位、Python 3.10 只收 3 或 6 位，解析失敗會退回只精確到秒）；`pick_best.py` 不可因相似度低就排除照片 |
+| `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20）；`split_koniq.py --help` 不可開始切分；資料庫備份在 WAL 模式下也要完整；訓練從頭到尾沒改善時要回報失敗，不可印「權重儲存於」 |
+| `test_photo_grouping.py` | 三種挑選模式。相機識別讀不到 `SerialNumber` 時要能退到 `InternalSerialNumber` 與型號（Sony 的 JPG 沒有序號欄位，只認序號會讓整個資料夾得到 0 組且不報錯）；小數秒要能解析（ExifTool 寫兩位、Python 3.10 只收 3 或 6 位，解析失敗會退回只精確到秒）；`pick_best.py` 不可因相似度低就排除照片，提醒門檻與分組門檻相同；批次結果裡有、ExifTool 輸出裡沒有的照片要列出張數（ExifTool 沒加 `-r` 時子資料夾會整批漏掉）；掃資料夾遇到 `.heic` 等讀不了的照片要回報張數 |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
 | `test_metrics.py` | 報表指標（`common/metrics.py`）用手算得出答案的例子逐項驗證：同分樣本不可影響 AUC、沒有判定為正時 F1 是 0 而非 nan、報表的判定方向（`<` / `>`）必須與 `ai_inference.py` 相同。指標算錯不會報錯，只會把錯的數字寫進報告 |
 

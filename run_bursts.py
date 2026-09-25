@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 
 from burst_metadata import (CAMERA_MATCH_CHOICES, DEFAULT_MAX_SECONDS,
-                            build_burst_check)
-from photo_grouping import DEFAULT_THRESHOLD, group_photos
+                            build_burst_check, paths_without_metadata)
+from photo_grouping import DEFAULT_THRESHOLD, group_photos, load_photos
 
 
 def main():
@@ -35,6 +35,14 @@ def main():
     if stats["無法識別"]:
         print(f"[WARN] 有 {stats['無法識別']} 張無法識別相機，這些照片不會被分進連拍組。"
               f"｜可改用 --camera-match ignore 只依拍攝時間判斷")
+
+    missing = paths_without_metadata([p["path"] for p in load_photos(args.input)],
+                                     args.metadata)
+    if missing:
+        examples = "、".join(Path(p).name for p in missing[:3])
+        print(f"[WARN] 有 {len(missing)} 張在 {args.metadata} 裡找不到（例如 {examples}），"
+              f"這些照片不會被分進連拍組。"
+              f"｜照片在子資料夾時，ExifTool 要加 -r；也請確認兩邊是同一個資料夾")
 
     groups = group_photos(
         args.input,

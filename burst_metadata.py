@@ -108,6 +108,31 @@ DEFAULT_MAX_SECONDS = 5.0
 """
 
 
+def load_metadata(metadata_path):
+    """讀 ExifTool 的 -json 輸出，回傳 {正規化後的路徑: 該照片的欄位}。"""
+    with open(metadata_path, encoding="utf-8") as file:
+        items = json.load(file)
+
+    return {
+        normalized_path(item["SourceFile"]): item
+        for item in items
+        if item.get("SourceFile")
+    }
+
+
+def paths_without_metadata(paths, metadata_path):
+    """
+    回傳 paths 之中，在 ExifTool 輸出裡找不到的那些。
+
+    這些照片讀不到拍攝時間，永遠不會被分進連拍組。最常見的原因是
+    run_batch.py 會掃子資料夾、ExifTool 卻沒加 -r；其次是兩者的路徑寫法對不上。
+    build_burst_check 的統計只數得到「有中繼資料的照片」，看不出這件事，
+    所以另外檢查——否則使用者只會看到組數變少，不知道原因。
+    """
+    known = load_metadata(metadata_path)
+    return [p for p in paths if normalized_path(p) not in known]
+
+
 def build_burst_check(metadata_path, max_seconds=DEFAULT_MAX_SECONDS, camera_match="model"):
     """
     回傳 can_pair(路徑A, 路徑B)，以及一份識別層級的統計（給使用者確認判斷依據）。
@@ -115,14 +140,7 @@ def build_burst_check(metadata_path, max_seconds=DEFAULT_MAX_SECONDS, camera_mat
     if not math.isfinite(max_seconds) or max_seconds < 0:
         raise ValueError("時間門檻必須是非負的有限數字")
 
-    with open(metadata_path, encoding="utf-8") as file:
-        items = json.load(file)
-
-    metadata = {
-        normalized_path(item["SourceFile"]): item
-        for item in items
-        if item.get("SourceFile")
-    }
+    metadata = load_metadata(metadata_path)
 
     info = {
         path: (parse_capture_time(item), camera_identity(item, camera_match))

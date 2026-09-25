@@ -19,10 +19,7 @@ import os
 import sys
 
 import ai_inference
-from ai_inference import RAW_EXTENSIONS, evaluate_photo
-
-# 能讀的副檔名 = RAW 全系列 + PIL 支援的常見格式
-IMAGE_EXTENSIONS = RAW_EXTENSIONS | {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
+from ai_inference import IMAGE_EXTENSIONS, UNSUPPORTED_PHOTO_EXTENSIONS, evaluate_photo
 
 
 def collect_targets(paths):
@@ -32,11 +29,17 @@ def collect_targets(paths):
         if os.path.isdir(p):
             # 只掃這一層，不遞迴 —— 遞迴掃到 data/dataset 會是 7,000 張，
             # 使用者幾乎不會是想這樣，但等他發現時已經跑了很久。
+            names = os.listdir(p)
             found = sorted(
                 os.path.join(p, name)
-                for name in os.listdir(p)
+                for name in names
                 if os.path.splitext(name)[1].lower() in IMAGE_EXTENSIONS
             )
+            unsupported = sum(os.path.splitext(name)[1].lower() in UNSUPPORTED_PHOTO_EXTENSIONS
+                              for name in names)
+            if unsupported:
+                print(f"[WARN] 略過 {unsupported} 張不支援的照片（例如 iPhone 的 .heic），"
+                      f"請先轉成 JPG：{p}")
             if not found:
                 print(f"[WARN] 資料夾內沒有可讀的影像檔：{p}")
             targets.extend(found)
