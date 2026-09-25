@@ -72,9 +72,14 @@ class NIMABaseline(nn.Module):
 
 def emd_loss(pred, target, r=2):
     """
-    Earth Mover's Distance（推土機距離）。
-    對 CDF 差值直接取 mean，與 NIMA 論文定義一致。
+    Earth Mover's Distance（推土機距離），訓練用的 loss。
+    對 CDF 差值的 r 次方直接取 mean，整個 batch 一起平均。
     僅在 output_mode='distribution' 時使用。
+
+    與 NIMA 論文的定義差在最後沒有開 1/r 次方（論文逐張開根號再平均）。
+    兩者縮小的是同一個 CDF 差距，只是各張照片的加權方式不同；
+    數值不能和論文或其他專案直接比較，報表要用論文定義時請用
+    common/metrics.py 的 emd_per_sample。
     """
     cdf_pred = torch.cumsum(pred, dim=1)
     cdf_target = torch.cumsum(target, dim=1)

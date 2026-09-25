@@ -216,11 +216,22 @@ def issues_section(arrays):
     tags = [classify_issues(t) for t in arrays['issues']]
     names = [name for _, name in ISSUE_KEYWORDS] + ['其他']
     rows = []
+    noise = None
     for name in names:
         flagged = np.array([name in t for t in tags])
         n_flag = int(flagged.sum())
-        if n_flag == 0 and name in ('雜訊', '其他'):
-            continue   # 雜訊判斷目前停用（NOISE_SIGMA_THRESHOLD = None），不列出
+        if name == '雜訊':
+            # 雜訊不列入表格與圖表，只在說明裡交代數字。
+            # 門檻是用 Sony ARW 原檔校準的；KonIQ 是縮小到 512x384 的網路 JPG，
+            # 縮小會把細節擠進每個像素，而這個估計量本來就分不開細節與雜訊。
+            # 2026-09-25 實測：驗證集 61% 被標記，被標記者的 MOS 中位數反而較高（67 vs 49）——
+            # 量到的是「畫面清晰」而不是雜訊，放進表格只會誤導讀者。
+            noise = {'flagged': n_flag, 'rate': n_flag / len(mos),
+                     'mos_flagged_median': float(np.median(mos[flagged])) if n_flag else None,
+                     'mos_rest_median': float(np.median(mos[~flagged])) if (~flagged).any() else None}
+            continue
+        if n_flag == 0 and name == '其他':
+            continue
         row = {'issue': name, 'flagged': n_flag, 'rate': n_flag / len(mos),
                'mos_flagged_median': float(np.median(mos[flagged])) if n_flag else None,
                'mos_rest_median': float(np.median(mos[~flagged])),
@@ -231,7 +242,8 @@ def issues_section(arrays):
         if n_flag >= 5 and (~flagged).sum() >= 5:
             row['p_value'] = float(mannwhitneyu(mos[flagged], mos[~flagged]).pvalue)
         rows.append(row)
-    any_flag = np.array([bool(t) for t in tags])
+    # 「至少被標記一項」與表格一致，不含雜訊
+    any_flag = np.array([bool(t - {'雜訊'}) for t in tags])
     print('\n=== 影像量測細項（KonIQ 驗證集）===')
     for r in rows:
         if r['flagged']:
@@ -239,8 +251,16 @@ def issues_section(arrays):
                   f"  MOS 中位數 {r['mos_flagged_median']:5.1f} vs 其餘 {r['mos_rest_median']:5.1f}")
         else:
             print(f"    {r['issue']:<5}  標記    0 張")
+
+    note = ('雜訊不列入：門檻是用相機 RAW 原檔校準的，KonIQ 是縮小到 512x384 的網路 JPG，'
+            '縮小後的細節會被這個估計量當成雜訊')
+    if noise and noise['flagged'] and noise['mos_flagged_median'] is not None \
+            and noise['mos_rest_median'] is not None:
+        note += (f"（本次標記 {noise['flagged']:,} 張、{noise['rate']:.0%}，被標記者 MOS 中位數 "
+                 f"{noise['mos_flagged_median']:.1f}、其餘 {noise['mos_rest_median']:.1f}）")
+        print(f"    雜訊   不列入（標記 {noise['flagged']} 張，量到的主要是細節，見 summary.md）")
     return {'n': int(len(mos)), 'any_flagged': int(any_flag.sum()), 'rows': rows,
-            'note': '雜訊判斷目前停用（ai_inference.NOISE_SIGMA_THRESHOLD = None），因此不列入'}, tags
+            'noise_excluded': noise, 'note': note}, tags
 
 
 # ==========================================
@@ -617,7 +637,7 @@ def make_charts(res, arr, out):
         ax.legend(handles=[Patch(color=P.BLUE, label='有被標記'), Patch(color=P.DEEMPH, label='沒被標記')],
                   loc='upper left', ncol=2)
         P.title(ax, '影像量測細項：被標記的照片，人工評分真的比較低嗎？',
-                f"KonIQ 驗證集 {iss['n']:,} 張；盒中橫線是中位數；雜訊判斷目前停用，不列入")
+                f"KonIQ 驗證集 {iss['n']:,} 張；盒中橫線是中位數；雜訊不列入（原因見 summary.md）")
         save(fig, 'issues_mos.png')
 
     return made

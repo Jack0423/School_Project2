@@ -11,9 +11,9 @@
   技術模型  PLCC / SRCC。標籤是連續的 KonIQ MOS 分數，
             而影像品質評估在意的是「排序」而非絕對數值，
             相關係數比單純的 loss 更貼近人類評分行為。
-  美感模型  AUC / 準確率。目前標籤是二元 0/1，
-            用 PLCC / SRCC 意義有限。
-            若改用 1~10 級分佈重新訓練，本腳本會自動改算 PLCC / SRCC。
+  美感模型  驗證集有 mean_score（AVA 群眾平均分，1~10）時算 PLCC / SRCC——
+            預設的 data/ava_val.csv 就有。
+            只有二元標籤 0/1 的舊驗證集（data/val.csv）才改算 AUC / 準確率。
 
 用法
 ----
