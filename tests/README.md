@@ -28,6 +28,7 @@ python -m unittest tests.test_evaluate_photo -v
 | `test_technical_analysis.py` | 雜訊門檻已用 77 張人工盲標樣本校準（全尺寸 1.43、半尺寸 3.02，都是零誤報），同一個數值在兩種尺寸下要用各自的門檻，乾淨影像不可被標記為有雜訊；細節影像會超過門檻是已知限制，用測試記錄下來；分析不可自己從硬碟讀檔（B3）；小於分析寬度的影像不可被放大（B19）；雜訊必須在原始解析度上估計（B11） |
 | `test_startup_guards.py` | 缺少權重必須明確失敗，絕不可產生任何分數（A1）；`split_data.py` **永遠不寫入自己的來源檔**，重跑必須完全冪等（B20）；`split_koniq.py --help` 不可開始切分；資料庫備份在 WAL 模式下也要完整；訓練從頭到尾沒改善時要回報失敗，不可印「權重儲存於」 |
 | `test_photo_grouping.py` | 三種挑選模式。相機識別讀不到 `SerialNumber` 時要能退到 `InternalSerialNumber` 與型號（Sony 的 JPG 沒有序號欄位，只認序號會讓整個資料夾得到 0 組且不報錯）；小數秒要能解析（ExifTool 寫兩位、Python 3.10 只收 3 或 6 位，解析失敗會退回只精確到秒）；`pick_best.py` 不可因相似度低就排除照片，提醒門檻與分組門檻相同；批次結果裡有、ExifTool 輸出裡沒有的照片要列出張數（ExifTool 沒加 `-r` 時子資料夾會整批漏掉）；掃資料夾遇到 `.heic` 等讀不了的照片要回報張數 |
+| `test_xmp_sidecar.py` | XMP 星等寫入（李奇翰的模組）。原始照片一個位元組都不能動；已有 sidecar 時只改 Rating，Lightroom 的調色與色標要保留；RAW+JPG 同名時 JPG 不可蓋掉 RAW 的星等，JPG／PNG／DNG 不寫 sidecar（Lightroom 不讀）；沒有 ExifTool 或 ExifTool 失敗時不可改既有 sidecar、要回報失敗（原本的文字替換會寫出無法解析的 XML 卻回報成功）；解碼必須與 `load_image()` 相同。換回原版時其中 4 項失敗，正好是這四種情況 |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
 | `test_metrics.py` | 報表指標（`common/metrics.py`）用手算得出答案的例子逐項驗證：同分樣本不可影響 AUC、沒有判定為正時 F1 是 0 而非 nan、報表的判定方向（`<` / `>`）必須與 `ai_inference.py` 相同。指標算錯不會報錯，只會把錯的數字寫進報告 |
 

@@ -208,6 +208,23 @@ python pick_best.py batch_01.jsonl --output best_pick.json
 
 門檻 0.85 與 5 秒是 2026-09-23 用 325 張 ARW 的人工標註校準出來的：原本的 0.9 / 2 秒，抽查 15 張未分組照片有 11 張其實有同伴被漏掉；放寬後救回 9 張，且重新標註「有變動的 35 組」沒有出現錯誤合併（連同第一輪的 105 組，共 140 組人工判斷、0 組誤分）。詳見 `photo_grouping.py` 與 `burst_metadata.py` 的常數說明。
 
+### XMP 星等寫入（李奇翰）
+
+```bash
+python rebuild_xmp_sidecars.py        # 執行後輸入照片資料夾
+python preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮放、拖曳
+```
+
+把綜合分換成 1–5 星（65 分以上 5 星、54 以上 4 星、43 以上 3 星、32 以上 2 星），
+寫進照片旁的 `.xmp`，Lightroom 讀取中繼資料後就會顯示星等。
+前台要寫星等時呼叫 `raw_processor.RawProcessor.safe_update_xmp(照片路徑, 綜合分)`，回傳 `(是否成功, 星等)`。
+
+- **原始照片一律不寫。** 沒有 `.xmp` 就新建一個；已經有的（例如在 Lightroom 調過色）只用 ExifTool 改 Rating，調色與色標保留。
+- **只寫相機原生 RAW，不含 DNG。** Lightroom 不讀 JPG、PNG、DNG 旁邊的 `.xmp`；而且 RAW+JPG 同時拍攝時兩張檔名相同，會寫到同一個 `.xmp` 互相蓋掉星等。
+- **修改既有的 `.xmp` 需要 ExifTool**，沒裝時不改並回報失敗；新建不需要。
+- 會覆蓋在 Lightroom 手動打的星等。
+- 星等依綜合分，所以會隨權重改變；批次工具用模型端的預設權重（美感 0.6）。
+
 ### 桌面前台
 
 ```bash
@@ -344,6 +361,10 @@ burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別（序號
 run_bursts.py           連拍候選命令列入口
 pick_best.py            使用者自己指定一組連拍，只做排名與挑選
 
+raw_processor.py        XMP 星等寫入與共用解碼（李奇翰）
+rebuild_xmp_sidecars.py 批次重寫資料夾內 RAW 的 .xmp 星等
+preview_viewer.py       唯讀照片預覽（縮放、拖曳）
+
 build_ava_labels.py     重建 AVA 標籤
 split_data.py           切分美感資料
 split_koniq.py          切分 KonIQ 資料
@@ -376,5 +397,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 189 個測試。
+目前共 198 個測試。
 細節見 [tests/README.md](tests/README.md)。
