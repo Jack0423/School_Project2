@@ -214,5 +214,20 @@ class TestFrontendDatabase(unittest.TestCase):
         self.assertEqual(both, [], '篩選與搜尋要同時成立')
 
 
+    # ── 建議文字 ────────────────────────────────────────
+    def test_old_suggestions_drop_the_copied_issues(self):
+        old_normal = ('照片品質良好。（影像量測附註：曝光不足，死黑區域佔比 55.9%。'
+                      '以上為客觀量測值，不一定代表缺陷——例如以黑色為背景的照片死黑比例本來就高）')
+        old_low = ('整體技術品質偏低（技術分 52.3，低於門檻 60）。'
+                   '可能成因：曝光不足，死黑區域佔比 55.9%；對比度不足，畫面偏灰、層次感弱（對比指標 26.3）。')
+        self.assertEqual(self.m.display_suggestion(old_normal), '照片品質良好。')
+        self.assertEqual(self.m.display_suggestion(old_low),
+                         '整體技術品質偏低（技術分 52.3，低於門檻 60），可能成因見影像量測附註。')
+        for current in ('照片品質良好。', '構圖優秀、光影掌握佳，整體技術品質良好。',
+                        '整體技術品質偏低（技術分 52.3，低於門檻 60），可能成因見影像量測附註。',
+                        '整體技術品質偏低（技術分 41.0，低於門檻 60），但未找出單一明顯成因，可能是壓縮失真或整體畫質不足。'):
+            self.assertEqual(self.m.display_suggestion(current), current, '新寫法不可以被改動')
+
+
 if __name__ == '__main__':
     unittest.main()

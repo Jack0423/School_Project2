@@ -987,11 +987,14 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
         #   因此讓已驗證的訊號決定狀態，未驗證的量測值只提供客觀數據。
         low_tech = score_tech < TECH_ISSUE_THRESHOLD
 
+        # 建議只寫結論，不重複 technical_issues 的內容：
+        # 前台、score.py、檢視器都會另外列出量測附註，原本把附註整段抄進建議，
+        # 畫面上同一句話（例如死黑比例）會出現兩次。
         if low_tech:
             status = "警告"
             suggestion = f"整體技術品質偏低（技術分 {score_tech:.1f}，低於門檻 {TECH_ISSUE_THRESHOLD}）"
             if technical_issues:
-                suggestion += "。可能成因：" + "；".join(technical_issues) + "。"
+                suggestion += "，可能成因見影像量測附註。"
             else:
                 suggestion += "，但未找出單一明顯成因，可能是壓縮失真或整體畫質不足。"
         else:
@@ -1001,11 +1004,6 @@ def evaluate_photo(img_path, image=None, aesthetic_weight=None, technical_weight
             else:
                 status = "正常"
                 suggestion = "照片品質良好。"
-            if technical_issues:
-                suggestion += (
-                    "（影像量測附註：" + "；".join(technical_issues)
-                    + "。以上為客觀量測值，不一定代表缺陷——例如以黑色為背景的照片死黑比例本來就高）"
-                )
 
         # 7. 包裝成前端最好拿取、最好讀的字典格式
         result = {

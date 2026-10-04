@@ -219,6 +219,24 @@ def sort_rows(rows, key_index, descending):
     return scored + others
 
 
+def display_suggestion(text):
+    """
+    建議的顯示文字。
+
+    2026-10-04 以前分析的照片，模型端在建議裡抄了一份影像量測附註，
+    畫面上會和下面的「影像量測附註」重複（死黑比例那句幾乎一模一樣）。
+    資料庫裡的舊文字在這裡整理成新寫法，不必為了文字把照片重新分析一次。
+    """
+    text = text or ""
+    # 技術分正常時的舊寫法：「照片品質良好。（影像量測附註：……）」
+    text = text.split("（影像量測附註：", 1)[0]
+    # 技術分偏低時的舊寫法：「……低於門檻 60）。可能成因：A；B。」
+    head, sep, _ = text.partition("）。可能成因：")
+    if sep:
+        text = head + "），可能成因見影像量測附註。"
+    return text
+
+
 def _is_current(row):
     """目前模型版本、已分析過，分數可以拿來比較與篩選。"""
     return bool(row[13]) and row[7] == MODEL_VERSION and row[2] is not None and row[3] is not None
@@ -1244,10 +1262,7 @@ class PhotoManagerV2(QWidget):
             f"技術狀態　{technical_status}\n"
             f"最佳照片　{best_text}\n"
             f"系統建議　{action}\n\n"
-            f"評分權重\n"
-            f"美感 {int(round(aesthetic_weight * 100))}% / "
-            f"技術 {int(round(technical_weight * 100))}%\n\n"
-            f"建議\n{suggestion}\n\n"
+            f"建議\n{display_suggestion(suggestion)}\n\n"
             f"影像量測附註\n{issues_text}\n"
             "以上為客觀量測值，不一定代表照片缺陷。"
             + shooting

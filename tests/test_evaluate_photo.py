@@ -527,5 +527,51 @@ class TestStatusDecoupledFromMeasurements(unittest.TestCase):
         self.assertTrue(any('曝光不足' in i for i in r['technical_issues']))
 
 
+
+@requires_weights
+class TestSuggestionDoesNotRepeatIssues(unittest.TestCase):
+    """
+    建議只寫結論，量測附註只出現在 technical_issues。
+
+    原本建議裡抄了一份附註（技術分正常時整段括號、偏低時「可能成因：…」），
+    前台、score.py、檢視器又都另外列出附註，畫面上同一句話出現兩次。
+    技術分用固定值替換，兩條路（偏低／正常）都確實走到。
+    """
+
+    def _evaluate_dark(self, tech_output):
+        import torch
+        original = ai.MODEL_TECH
+
+        class _Fixed:
+            def __call__(self, _tensor):
+                return torch.tensor([tech_output])
+
+        ai.MODEL_TECH = _Fixed()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = write_image(make_image(kind='dark'), Path(tmp) / 'd.jpg')
+                return ai.evaluate_photo(path)
+        finally:
+            ai.MODEL_TECH = original
+
+    def _assert_no_repeat(self, r):
+        self.assertTrue(r['technical_issues'], '測試前提失效：死黑影像應該要有量測附註')
+        for issue in r['technical_issues']:
+            self.assertNotIn(issue, r['suggestion'])
+        self.assertNotIn('死黑', r['suggestion'])
+
+    def test_low_technical_score(self):
+        r = self._evaluate_dark(0.30)          # 30 分，低於門檻
+        self.assertEqual(r['status'], '警告')
+        self._assert_no_repeat(r)
+        self.assertIn('可能成因見影像量測附註', r['suggestion'])
+
+    def test_normal_technical_score(self):
+        r = self._evaluate_dark(0.95)          # 95 分，高於門檻
+        self.assertNotEqual(r['status'], '警告')
+        self._assert_no_repeat(r)
+        self.assertIn(r['suggestion'], ('照片品質良好。', '構圖優秀、光影掌握佳，整體技術品質良好。'))
+
+
 if __name__ == '__main__':
     unittest.main()
