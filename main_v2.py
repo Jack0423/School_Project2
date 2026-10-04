@@ -7,10 +7,11 @@ import numpy as np
 
 import ai_inference
 from raw_processor import RawProcessor, SIDECAR_EXTENSIONS
+from shooting_info import read_shooting_info, format_shooting_info
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QListWidget,
     QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox,
-    QProgressBar, QFrame, QComboBox, QAbstractItemView
+    QProgressBar, QFrame, QComboBox, QAbstractItemView, QLineEdit
 )
 from PyQt6.QtGui import QPixmap, QImage, QKeySequence, QShortcut
 from PyQt6.QtCore import Qt, QPoint, QFile
@@ -184,6 +185,11 @@ TECH_THRESHOLD = ai_inference.TECH_ISSUE_THRESHOLD
 AESTHETIC_THRESHOLD = ai_inference.AESTHETIC_EXCELLENT_THRESHOLD
 IMAGE_EXTENSIONS = tuple(sorted(ai_inference.IMAGE_EXTENSIONS))
 
+# 預設權重與模型端相同（美感 0.6／技術 0.4），批次工具與 XMP 星等也用這個值。
+# 原本前台是 0.8：325 張實拍的美感分與技術分標準差差不多（9.4、9.9），
+# 0.8 時美感對排名的影響是技術的 3.8 倍，技術分幾乎不起作用；0.6 時是 1.4 倍。
+DEFAULT_AESTHETIC_WEIGHT = ai_inference.AESTHETIC_WEIGHT
+
 # 照片清單的排序選項：(顯示文字, 資料列中的欄位位置)；None 代表依檔名
 SORT_KEYS = (
     ("綜合分", 4),
@@ -211,6 +217,29 @@ def sort_rows(rows, key_index, descending):
     others = sorted((r for r in rows if not comparable(r)),
                     key=lambda r: (1 if r[13] else 0, r[0].lower()))
     return scored + others
+
+
+def _is_current(row):
+    """目前模型版本、已分析過，分數可以拿來比較與篩選。"""
+    return bool(row[13]) and row[7] == MODEL_VERSION and row[2] is not None and row[3] is not None
+
+
+# 照片清單的篩選選項：(顯示文字, 條件)
+FILTERS = (
+    ("全部照片", lambda r: True),
+    ("美感優秀", lambda r: _is_current(r) and ai_inference.aesthetic_grade(r[2]) == "優秀"),
+    ("美感待加強", lambda r: _is_current(r) and ai_inference.aesthetic_grade(r[2]) == "待加強"),
+    ("技術警告（△）", lambda r: _is_current(r) and r[3] < TECH_THRESHOLD),
+    ("尚未分析", lambda r: not r[13]),
+    ("需重新分析（↻）", lambda r: bool(r[13]) and r[7] != MODEL_VERSION),
+)
+
+
+def filter_rows(rows, filter_index, search_text=""):
+    """只留下符合篩選條件、而且檔名含搜尋字的資料列（不分大小寫，順序不變）。"""
+    keep = FILTERS[filter_index][1]
+    needle = search_text.strip().lower()
+    return [row for row in rows if keep(row) and needle in row[0].lower()]
 
 
 def _move_to_trash(path):
@@ -267,8 +296,8 @@ def init_db():
             aesthetic_score REAL,
             technical_score REAL,
             overall_score REAL,
-            aesthetic_weight REAL DEFAULT 0.8,
-            technical_weight REAL DEFAULT 0.2,
+            aesthetic_weight REAL DEFAULT 0.6,
+            technical_weight REAL DEFAULT 0.4,
             model_version TEXT DEFAULT '',
             status TEXT DEFAULT '',
             suggestion TEXT DEFAULT '',
@@ -530,7 +559,7 @@ class PhotoManagerV2(QWidget):
         self.current_folder = None
         self.current_file_path = None
         self.current_image_buffer = None
-        self.aesthetic_weight = 0.8
+        self.aesthetic_weight = DEFAULT_AESTHETIC_WEIGHT
 
         self.setWindowTitle("智慧照片篩選與管理系統")
         self.resize(1420, 820)
@@ -578,6 +607,10 @@ class PhotoManagerV2(QWidget):
             QProgressBar::chunk { background-color: #A8A8A8; border-radius: 4px; }
             QFrame#panel { background-color: #242424; border: 1px solid #383838; border-radius: 8px; }
             QComboBox {
+                background-color: #303030; color: #F5F5F5;
+                border: 1px solid #4A4A4A; border-radius: 6px; padding: 6px 10px;
+            }
+            QLineEdit {
                 background-color: #303030; color: #F5F5F5;
                 border: 1px solid #4A4A4A; border-radius: 6px; padding: 6px 10px;
             }
@@ -634,6 +667,17 @@ class PhotoManagerV2(QWidget):
         sort_row.addWidget(self.sort_combo, 1)
         sort_row.addWidget(self.sort_order_btn)
 
+        # 篩選與搜尋只影響清單顯示哪些照片；批次分析與刪除照樣以整個資料夾為準
+        self.filter_combo = QComboBox()
+        for label, _ in FILTERS:
+            self.filter_combo.addItem(label)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("顯示"))
+        filter_row.addWidget(self.filter_combo, 1)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("搜尋檔名，例如 DSC021")
+        self.search_edit.setClearButtonEnabled(True)
+
         # 可以用 Ctrl／Shift 多選，按 Delete 鍵或下面的按鈕刪除
         self.photo_list = QListWidget()
         self.photo_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -650,6 +694,8 @@ class PhotoManagerV2(QWidget):
         left.addWidget(self.folder_label)
         left.addWidget(self.count_label)
         left.addLayout(sort_row)
+        left.addLayout(filter_row)
+        left.addWidget(self.search_edit)
         left.addWidget(self.photo_list)
         left.addLayout(delete_row)
 
@@ -694,11 +740,12 @@ class PhotoManagerV2(QWidget):
 
         weight_title = QLabel("照片排序偏好")
         weight_title.setStyleSheet("font-weight: 700;")
-        self.weight_label = QLabel("美感 80%   /   技術 20%")
+        default_percent = round(DEFAULT_AESTHETIC_WEIGHT * 100)
+        self.weight_label = QLabel(f"美感 {default_percent}%   /   技術 {100 - default_percent}%")
         self.weight_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.weight_slider = QSlider(Qt.Orientation.Horizontal)
         self.weight_slider.setRange(0, 100)
-        self.weight_slider.setValue(80)
+        self.weight_slider.setValue(default_percent)
         self.weight_hint = QLabel("調整權重僅重新計算排序，不會重新執行 AI 分析。")
         self.weight_hint.setWordWrap(True)
         self.weight_hint.setStyleSheet("color: #9A9A9A; font-size: 12px;")
@@ -748,6 +795,8 @@ class PhotoManagerV2(QWidget):
         self.weight_slider.valueChanged.connect(self.weight_changed)
         self.sort_combo.currentIndexChanged.connect(self.sort_field_changed)
         self.sort_order_btn.clicked.connect(self.toggle_sort_order)
+        self.filter_combo.currentIndexChanged.connect(self.refresh_list)
+        self.search_edit.textChanged.connect(self.refresh_list)
         self.select_warn_btn.clicked.connect(self.select_warnings)
         self.delete_btn.clicked.connect(self.delete_selected)
         QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.photo_list,
@@ -1016,8 +1065,12 @@ class PhotoManagerV2(QWidget):
             return
 
         _, key_index = SORT_KEYS[self.sort_combo.currentIndex()]
-        rows = sort_rows(get_photos_in_folder(self.current_folder), key_index, self.sort_descending)
-        self.rows_by_name = {row[0]: row for row in rows}
+        all_rows = get_photos_in_folder(self.current_folder)
+        self.rows_by_name = {row[0]: row for row in all_rows}
+        # 批次分析用 photo_paths 決定要分析哪些照片，所以放整個資料夾，不受篩選影響
+        self.photo_paths.update({row[0]: row[1] for row in all_rows})
+        rows = filter_rows(sort_rows(all_rows, key_index, self.sort_descending),
+                           self.filter_combo.currentIndex(), self.search_edit.text())
 
         for row in rows:
             file_name = row[0]
@@ -1045,7 +1098,10 @@ class PhotoManagerV2(QWidget):
 
             self.photo_list.addItem(display)
 
-        self.count_label.setText(f"照片數量：{len(rows)} 張")
+        if len(rows) == len(all_rows):
+            self.count_label.setText(f"照片數量：{len(rows)} 張")
+        else:
+            self.count_label.setText(f"照片數量：顯示 {len(rows)} 張／共 {len(all_rows)} 張")
 
     def _update_sort_order_text(self):
         by_name = SORT_KEYS[self.sort_combo.currentIndex()][1] is None
@@ -1148,10 +1204,14 @@ class PhotoManagerV2(QWidget):
             analyzed,
         ) = row
 
+        # 拍攝資訊與分析無關，還沒分析的照片也顯示；同一張照片只讀一次（約 0.2 秒）
+        shooting = "\n\n拍攝資訊\n" + format_shooting_info(*read_shooting_info(file_path))
+
         if analyzed == 0:
             self.result_label.setText(
                 "尚未分析\n\n"
                 "請按「分析目前照片」或「開始批次分析」。"
+                + shooting
             )
             return
 
@@ -1159,6 +1219,7 @@ class PhotoManagerV2(QWidget):
             self.result_label.setText(
                 "此照片是舊版模型的分數，不納入目前的排序。\n\n"
                 "請按「分析目前照片」或「開始批次分析」重新分析。"
+                + shooting
             )
             return
 
@@ -1189,6 +1250,7 @@ class PhotoManagerV2(QWidget):
             f"建議\n{suggestion}\n\n"
             f"影像量測附註\n{issues_text}\n"
             "以上為客觀量測值，不一定代表照片缺陷。"
+            + shooting
         )
 
 

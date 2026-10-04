@@ -184,5 +184,35 @@ class TestFrontendDatabase(unittest.TestCase):
         self.assertIn('b.NEF', [r[0] for r in self.m.get_photos_in_folder(str(self.folder))])
 
 
+    # ── 預設權重、篩選與搜尋 ──────────────────────────────
+    def test_default_weight_matches_model_side(self):
+        import ai_inference
+        self.assertEqual(self.m.DEFAULT_AESTHETIC_WEIGHT, ai_inference.AESTHETIC_WEIGHT,
+                         '前台、批次工具與 XMP 星等要用同一個預設權重')
+
+    def _row(self, name, aes, tech, analyzed=1, current=True):
+        version = self.m.MODEL_VERSION if current else '舊版'
+        return (name, name, aes, tech, None, None, None, version, '', '', '', '', 0, analyzed)
+
+    def test_filters_and_search(self):
+        rows = [self._row('great.ARW', 70, 80),        # 美感優秀
+                self._row('weak.jpg', 30, 90),         # 美感待加強
+                self._row('blurry.ARW', 55, 40),       # 技術警告
+                self._row('old.ARW', 75, 30, current=False),   # 舊版本：不算優秀也不算警告
+                self._row('new.NEF', None, None, analyzed=0)]
+        # 依 FILTERS 的順序：全部、美感優秀、美感待加強、技術警告、尚未分析、需重新分析
+        names = [[r[0] for r in self.m.filter_rows(rows, i)] for i in range(len(self.m.FILTERS))]
+        expected = [[r[0] for r in rows], ['great.ARW'], ['weak.jpg'], ['blurry.ARW'],
+                    ['new.NEF'], ['old.ARW']]
+        for i, (label, _) in enumerate(self.m.FILTERS):
+            with self.subTest(filter=i):
+                self.assertEqual(names[i], expected[i], label.encode('cp950', 'replace').decode('cp950'))
+
+        searched = [r[0] for r in self.m.filter_rows(rows, 0, '  arw ')]
+        self.assertEqual(searched, ['great.ARW', 'blurry.ARW', 'old.ARW'], '搜尋不分大小寫、忽略前後空白')
+        both = [r[0] for r in self.m.filter_rows(rows, 3, 'great')]
+        self.assertEqual(both, [], '篩選與搜尋要同時成立')
+
+
 if __name__ == '__main__':
     unittest.main()
