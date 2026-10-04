@@ -126,6 +126,37 @@ class TestExcellentThresholdIsReachable(unittest.TestCase):
             f'{ai.AESTHETIC_EXCELLENT_THRESHOLD}，「優秀」狀態可能永遠不會出現')
 
 
+
+class TestAestheticGrade(unittest.TestCase):
+    """
+    美感分的四級文字（前台的「美感標記」）。
+
+    「優秀」必須和 status 用同一個門檻與比較方向（>）：前台原本寫 >=，
+    美感分剛好 62.00 時前台顯示優秀、status 卻不是。
+    「普通」的下限是 AVA 二元標籤的門檻 4.47 分換算成的 38.6。
+    """
+
+    def test_boundaries(self):
+        cases = [(ai.AESTHETIC_EXCELLENT_THRESHOLD + 0.01, '優秀'),
+                 (ai.AESTHETIC_EXCELLENT_THRESHOLD, '良好'),
+                 (ai.AESTHETIC_GOOD_THRESHOLD + 0.01, '良好'),
+                 (ai.AESTHETIC_GOOD_THRESHOLD, '普通'),
+                 (ai.AESTHETIC_FAIR_THRESHOLD + 0.01, '普通'),
+                 (ai.AESTHETIC_FAIR_THRESHOLD, '待加強'),
+                 (0.0, '待加強')]
+        for score, grade in cases:
+            with self.subTest(score=score):
+                self.assertEqual(ai.aesthetic_grade(score), grade)
+
+    def test_fair_threshold_is_the_ava_binary_cut(self):
+        # 美感分 = (群眾平均分 - 1) / 9 x 100
+        self.assertAlmostEqual(ai.AESTHETIC_FAIR_THRESHOLD, (4.47 - 1) / 9 * 100, places=1)
+
+    def test_excellent_matches_status(self):
+        self.assertEqual(ai.aesthetic_grade(ai.AESTHETIC_EXCELLENT_THRESHOLD), '良好',
+                         '剛好等於門檻時 status 不是優秀，美感標記也不能是')
+
+
 @requires_weights
 class TestScoresStayInRange(unittest.TestCase):
     def test_synthetic_images_score_within_bounds(self):

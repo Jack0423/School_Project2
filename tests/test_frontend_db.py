@@ -125,5 +125,64 @@ class TestFrontendDatabase(unittest.TestCase):
         self.assertEqual(seen, [(1, 2), (2, 2)])
 
 
+    # ── 排序 ────────────────────────────────────────────
+    def _order(self, label, descending):
+        key_index = dict(self.m.SORT_KEYS)[label]
+        rows = self.m.get_photos_in_folder(str(self.folder))
+        return [r[0] for r in self.m.sort_rows(rows, key_index, descending)]
+
+    def test_sort_by_each_field(self):
+        self.m.recompute_scores(0.6, str(self.folder))   # 綜合分：a 68、c 61、d 50、b 44
+        # 未分析（f）與舊版本（e）沒有可比的分數，一律排在最後
+        self.assertEqual(self._order('綜合分', True), ['a.ARW', 'c.jpg', 'd.dng', 'b.NEF', 'f.ARW', 'e.ARW'])
+        self.assertEqual(self._order('綜合分', False), ['b.NEF', 'd.dng', 'c.jpg', 'a.ARW', 'f.ARW', 'e.ARW'])
+        self.assertEqual(self._order('美感分', True), ['a.ARW', 'c.jpg', 'd.dng', 'b.NEF', 'f.ARW', 'e.ARW'])
+        # b 與 d 的技術分都是 50：同分依檔名
+        self.assertEqual(self._order('技術分', False), ['b.NEF', 'd.dng', 'c.jpg', 'a.ARW', 'f.ARW', 'e.ARW'])
+        self.assertEqual(self._order('技術分', True), ['a.ARW', 'c.jpg', 'b.NEF', 'd.dng', 'f.ARW', 'e.ARW'])
+        self.assertEqual(self._order('檔名', False), ['a.ARW', 'b.NEF', 'c.jpg', 'd.dng', 'e.ARW', 'f.ARW'])
+        self.assertEqual(self._order('檔名', True), ['f.ARW', 'e.ARW', 'd.dng', 'c.jpg', 'b.NEF', 'a.ARW'])
+
+    # ── 刪除 ────────────────────────────────────────────
+    def _fake_trash(self, fail=()):
+        """代替資源回收筒：移到暫存的 trash 資料夾，測試不會動到真的回收筒。"""
+        trash_dir = Path(self.tmp.name) / 'trash'
+        trash_dir.mkdir(exist_ok=True)
+
+        def trash(path):
+            if os.path.basename(path) in fail:
+                return False, '測試用的失敗'
+            os.replace(path, trash_dir / os.path.basename(path))
+            return True, ''
+        return trash, trash_dir
+
+    def test_delete_moves_photo_and_raw_sidecar_only(self):
+        (self.folder / 'a.xmp').write_text('a 的星等', encoding='utf-8')   # RAW 的 sidecar
+        (self.folder / 'c.xmp').write_text('不屬於 c.jpg', encoding='utf-8')
+        trash, trash_dir = self._fake_trash()
+
+        moved, failed = self.m.delete_photos(
+            [str(self.folder / 'a.ARW'), str(self.folder / 'c.jpg')], trash=trash)
+
+        self.assertEqual((moved, failed), (2, []))
+        self.assertEqual(sorted(p.name for p in trash_dir.iterdir()), ['a.ARW', 'a.xmp', 'c.jpg'])
+        self.assertTrue((self.folder / 'c.xmp').exists(), '刪 JPG 不可以動到 .xmp')
+        remaining = sorted(r[0] for r in self.m.get_photos_in_folder(str(self.folder)))
+        self.assertEqual(remaining, ['b.NEF', 'd.dng', 'e.ARW', 'f.ARW'])
+
+        self.m.recompute_scores(0.6, str(self.folder))
+        best = [r[0] for r in self.m.get_photos_in_folder(str(self.folder)) if r[12] == 1]
+        self.assertEqual(best, ['d.dng'], '刪掉 ★ 之後要重新挑最佳照片')
+
+    def test_failed_delete_keeps_photo_and_record(self):
+        trash, _ = self._fake_trash(fail={'b.NEF'})
+        moved, failed = self.m.delete_photos([str(self.folder / 'b.NEF')], trash=trash)
+
+        self.assertEqual(moved, 0)
+        self.assertEqual([name for name, _ in failed], ['b.NEF'])
+        self.assertTrue((self.folder / 'b.NEF').exists())
+        self.assertIn('b.NEF', [r[0] for r in self.m.get_photos_in_folder(str(self.folder))])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -108,6 +108,28 @@ TECH_ISSUE_THRESHOLD = 60
 # 若想更嚴格，可參考實測：>68 選出 16.9%、準確度 96.2%。
 AESTHETIC_EXCELLENT_THRESHOLD = 62
 
+# 美感分的顯示分級（只用於畫面上的文字，不影響任何分數與狀態判定）。
+#
+# 美感分 = (模型預測的 AVA 群眾平均分 - 1) / 9 x 100，所以每一級都能換回群眾平均分：
+#   優秀    > 62    群眾平均約 6.6 以上（與 status 的「優秀」同一個門檻）
+#   良好    > 50    群眾平均 5.5 以上
+#   普通    > 38.6  群眾平均 4.47 以上：AVA 競賽二元標籤區分好壞照片的門檻（見 build_ava_labels.py）
+#   待加強  其餘
+# F:\testphoto 325 張實拍的分布：優秀 40、良好 126、普通 125、待加強 34。
+AESTHETIC_GOOD_THRESHOLD = 50
+AESTHETIC_FAIR_THRESHOLD = round((4.47 - 1.0) / 9.0 * 100.0, 1)   # 38.6
+
+
+def aesthetic_grade(aesthetic_score):
+    """美感分的四級文字：優秀／良好／普通／待加強。前台顯示用，門檻見上方說明。"""
+    if aesthetic_score > AESTHETIC_EXCELLENT_THRESHOLD:
+        return "優秀"
+    if aesthetic_score > AESTHETIC_GOOD_THRESHOLD:
+        return "良好"
+    if aesthetic_score > AESTHETIC_FAIR_THRESHOLD:
+        return "普通"
+    return "待加強"
+
 # RAW 檔副檔名。這些格式必須交給 rawpy，不能讓 PIL 處理：
 #   .ARW  —— PIL 直接失敗（ValueError: Invalid dimensions），至少會報錯。
 #   .DNG  —— 更危險。PIL「開得起來」，但讀到的是檔案內嵌的預覽縮圖。

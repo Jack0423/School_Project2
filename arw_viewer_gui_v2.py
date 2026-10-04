@@ -84,11 +84,8 @@ class ARWViewerProV2(ARWViewerPro):
             else "正常"
         )
 
-        aesthetic_mark = (
-            "優秀"
-            if aesthetic_score >= ai_inference.AESTHETIC_EXCELLENT_THRESHOLD
-            else "—"
-        )
+        # 優秀／良好／普通／待加強，與主程式相同
+        aesthetic_mark = ai_inference.aesthetic_grade(aesthetic_score)
 
         info = (
             f"🎨 美感分數：{aesthetic_score:.2f}\n"

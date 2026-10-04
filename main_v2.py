@@ -10,10 +10,10 @@ from raw_processor import RawProcessor, SIDECAR_EXTENSIONS
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QListWidget,
     QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox,
-    QProgressBar, QFrame
+    QProgressBar, QFrame, QComboBox, QAbstractItemView
 )
-from PyQt6.QtGui import QPixmap, QImage
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtGui import QPixmap, QImage, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QPoint, QFile
 
 
 class PhotoPreviewLabel(QLabel):
@@ -183,6 +183,73 @@ MODEL_VERSION = ai_inference.model_version()
 TECH_THRESHOLD = ai_inference.TECH_ISSUE_THRESHOLD
 AESTHETIC_THRESHOLD = ai_inference.AESTHETIC_EXCELLENT_THRESHOLD
 IMAGE_EXTENSIONS = tuple(sorted(ai_inference.IMAGE_EXTENSIONS))
+
+# 照片清單的排序選項：(顯示文字, 資料列中的欄位位置)；None 代表依檔名
+SORT_KEYS = (
+    ("綜合分", 4),
+    ("美感分", 2),
+    ("技術分", 3),
+    ("檔名", None),
+)
+
+
+def sort_rows(rows, key_index, descending):
+    """
+    依使用者選的欄位排序資料列（欄位順序同 get_photos_in_folder）。
+
+    依分數排序時，只有「目前模型版本、已分析」的照片有可比的分數，排在前面；
+    未分析與舊版本（↻）的照片排在後面，依檔名排列。分數相同時依檔名。
+    """
+    if key_index is None:
+        return sorted(rows, key=lambda r: r[0].lower(), reverse=descending)
+
+    def comparable(row):
+        return row[13] and row[7] == MODEL_VERSION and row[key_index] is not None
+
+    scored = sorted((r for r in rows if comparable(r)), key=lambda r: r[0].lower())
+    scored.sort(key=lambda r: r[key_index], reverse=descending)   # 穩定排序：同分仍依檔名
+    others = sorted((r for r in rows if not comparable(r)),
+                    key=lambda r: (1 if r[13] else 0, r[0].lower()))
+    return scored + others
+
+
+def _move_to_trash(path):
+    """移到資源回收筒（Windows）或垃圾桶（macOS），可以還原。回傳 (是否成功, 失敗原因)。"""
+    ok, _ = QFile.moveToTrash(path)
+    return ok, "" if ok else "無法移到資源回收筒（檔案可能不存在或正在使用中）"
+
+
+def delete_photos(paths, trash=_move_to_trash):
+    """
+    把照片移到資源回收筒，並刪掉它們在資料庫裡的紀錄。不會永久刪除。
+
+    相機原生 RAW 旁邊的 .xmp（「寫入 XMP 星等」建立的）一起移走；
+    刪 JPG 時不動 .xmp——RAW+JPG 同檔名時，那個 .xmp 屬於 RAW。
+    回傳 (移走的張數, [(檔名, 失敗原因), ...])。
+    """
+    moved = 0
+    failed = []
+    conn = get_conn()
+    cur = conn.cursor()
+
+    for path in paths:
+        path = os.path.abspath(path)
+        ok, reason = trash(path)
+        if not ok:
+            failed.append((os.path.basename(path), reason))
+            continue
+
+        moved += 1
+        cur.execute("DELETE FROM photos_v2 WHERE file_path = ?", (path,))
+
+        base, ext = os.path.splitext(path)
+        sidecar = base + ".xmp"
+        if ext.lower() in SIDECAR_EXTENSIONS and os.path.exists(sidecar):
+            trash(sidecar)
+
+    conn.commit()
+    conn.close()
+    return moved, failed
 
 
 def get_conn():
@@ -510,6 +577,14 @@ class PhotoManagerV2(QWidget):
             }
             QProgressBar::chunk { background-color: #A8A8A8; border-radius: 4px; }
             QFrame#panel { background-color: #242424; border: 1px solid #383838; border-radius: 8px; }
+            QComboBox {
+                background-color: #303030; color: #F5F5F5;
+                border: 1px solid #4A4A4A; border-radius: 6px; padding: 6px 10px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #242424; color: #EEEEEE;
+                selection-background-color: #4A4A4A;
+            }
         """)
 
         title = QLabel("智慧照片篩選與管理系統")
@@ -546,11 +621,37 @@ class PhotoManagerV2(QWidget):
         self.folder_label.setStyleSheet("color: #AAAAAA;")
         self.folder_label.setWordWrap(True)
         self.count_label = QLabel("照片數量：0 張")
+
+        # 排序：欄位＋升降冪
+        self.sort_combo = QComboBox()
+        for label, _ in SORT_KEYS:
+            self.sort_combo.addItem(f"依{label}")
+        self.sort_descending = True
+        self.sort_order_btn = QPushButton()
+        self._update_sort_order_text()
+        sort_row = QHBoxLayout()
+        sort_row.addWidget(QLabel("排序"))
+        sort_row.addWidget(self.sort_combo, 1)
+        sort_row.addWidget(self.sort_order_btn)
+
+        # 可以用 Ctrl／Shift 多選，按 Delete 鍵或下面的按鈕刪除
         self.photo_list = QListWidget()
+        self.photo_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+
+        self.select_warn_btn = QPushButton("選取技術警告")
+        self.select_warn_btn.setToolTip("一次選取所有 △（技術分低於警告門檻）的照片，刪除前可以再取消幾張")
+        self.delete_btn = QPushButton("刪除選取的照片")
+        self.delete_btn.setToolTip("移到資源回收筒，可以還原；RAW 旁邊的 .xmp 也會一起移走")
+        delete_row = QHBoxLayout()
+        delete_row.addWidget(self.select_warn_btn)
+        delete_row.addWidget(self.delete_btn)
+
         left.addWidget(left_title)
         left.addWidget(self.folder_label)
         left.addWidget(self.count_label)
+        left.addLayout(sort_row)
         left.addWidget(self.photo_list)
+        left.addLayout(delete_row)
 
         # 中：照片預覽
         center_panel = QFrame()
@@ -602,7 +703,9 @@ class PhotoManagerV2(QWidget):
         self.weight_hint.setWordWrap(True)
         self.weight_hint.setStyleSheet("color: #9A9A9A; font-size: 12px;")
 
-        self.model_label = QLabel(f"模型版本\n{MODEL_VERSION}")
+        # 完整版本字串太長會被切掉，畫面只顯示最後的 rev，完整字串放在滑鼠提示
+        self.model_label = QLabel(f"模型版本 {MODEL_VERSION.rsplit('|', 1)[-1]}")
+        self.model_label.setToolTip(MODEL_VERSION)
         self.model_label.setWordWrap(True)
         self.model_label.setStyleSheet("color: #888888; font-size: 11px;")
 
@@ -643,6 +746,12 @@ class PhotoManagerV2(QWidget):
         self.analyze_all_btn.clicked.connect(self.analyze_all)
         self.xmp_btn.clicked.connect(self.write_xmp)
         self.weight_slider.valueChanged.connect(self.weight_changed)
+        self.sort_combo.currentIndexChanged.connect(self.sort_field_changed)
+        self.sort_order_btn.clicked.connect(self.toggle_sort_order)
+        self.select_warn_btn.clicked.connect(self.select_warnings)
+        self.delete_btn.clicked.connect(self.delete_selected)
+        QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.photo_list,
+                  activated=self.delete_selected)
 
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "選擇照片資料夾")
@@ -768,6 +877,8 @@ class PhotoManagerV2(QWidget):
         # 跑到一半換資料夾或寫 XMP，最後的重算與星等會用到另一個資料夾或還沒算完的分數
         self.folder_btn.setEnabled(False)
         self.xmp_btn.setEnabled(False)
+        self.delete_btn.setEnabled(False)
+        self.select_warn_btn.setEnabled(False)
 
         try:
             # 目前仍為同步版本；背景執行緒之後由宋宇宸的批次管線接口接入。
@@ -831,6 +942,8 @@ class PhotoManagerV2(QWidget):
             self.analyze_current_btn.setEnabled(True)
             self.folder_btn.setEnabled(True)
             self.xmp_btn.setEnabled(True)
+            self.delete_btn.setEnabled(True)
+            self.select_warn_btn.setEnabled(True)
 
     def write_xmp(self):
         if not self.current_folder:
@@ -847,7 +960,7 @@ class PhotoManagerV2(QWidget):
             return
 
         controls = (self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
-                    self.xmp_btn, self.weight_slider)
+                    self.xmp_btn, self.weight_slider, self.delete_btn, self.select_warn_btn)
         for control in controls:
             control.setEnabled(False)
 
@@ -902,7 +1015,9 @@ class PhotoManagerV2(QWidget):
             self.count_label.setText("照片數量：0 張")
             return
 
-        rows = get_photos_in_folder(self.current_folder)
+        _, key_index = SORT_KEYS[self.sort_combo.currentIndex()]
+        rows = sort_rows(get_photos_in_folder(self.current_folder), key_index, self.sort_descending)
+        self.rows_by_name = {row[0]: row for row in rows}
 
         for row in rows:
             file_name = row[0]
@@ -931,6 +1046,83 @@ class PhotoManagerV2(QWidget):
             self.photo_list.addItem(display)
 
         self.count_label.setText(f"照片數量：{len(rows)} 張")
+
+    def _update_sort_order_text(self):
+        by_name = SORT_KEYS[self.sort_combo.currentIndex()][1] is None
+        if by_name:
+            self.sort_order_btn.setText("Z → A" if self.sort_descending else "A → Z")
+        else:
+            self.sort_order_btn.setText("高 → 低" if self.sort_descending else "低 → 高")
+
+    def sort_field_changed(self):
+        # 換欄位時用最常用的方向：分數由高到低，檔名由 A 到 Z
+        self.sort_descending = SORT_KEYS[self.sort_combo.currentIndex()][1] is not None
+        self._update_sort_order_text()
+        self.refresh_list()
+
+    def toggle_sort_order(self):
+        self.sort_descending = not self.sort_descending
+        self._update_sort_order_text()
+        self.refresh_list()
+
+    def select_warnings(self):
+        """一次選取所有技術警告（△）的照片。只選取不刪除，使用者可以再取消幾張。"""
+        self.photo_list.clearSelection()
+        count = 0
+        for i in range(self.photo_list.count()):
+            item = self.photo_list.item(i)
+            row = self.rows_by_name.get(self.clean_name(item.text()))
+            if (row and row[13] and row[7] == MODEL_VERSION
+                    and row[3] is not None and float(row[3]) < TECH_THRESHOLD):
+                item.setSelected(True)
+                count += 1
+
+        if count:
+            self.progress_label.setText(
+                f"已選取 {count} 張技術警告的照片，看過後按「刪除選取的照片」；按住 Ctrl 點一下可以取消")
+        else:
+            self.progress_label.setText("目前資料夾沒有技術警告的照片")
+
+    def delete_selected(self):
+        names = [self.clean_name(item.text()) for item in self.photo_list.selectedItems()]
+        paths = [self.photo_paths[name] for name in names if name in self.photo_paths]
+        if not paths:
+            self.progress_label.setText("請先選取要刪除的照片（可以按住 Ctrl 或 Shift 多選）")
+            return
+
+        preview = "\n".join(names[:8]) + (f"\n……共 {len(names)} 張" if len(names) > 8 else "")
+        answer = QMessageBox.question(
+            self, "刪除照片",
+            f"要把這 {len(paths)} 張照片移到資源回收筒嗎？\n"
+            "RAW 旁邊的 .xmp 也會一起移走。之後可以從資源回收筒還原。\n\n"
+            f"{preview}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        moved, failed = delete_photos(paths)
+
+        if self.current_file_path and os.path.abspath(self.current_file_path) in {
+                os.path.abspath(p) for p in paths} and not os.path.exists(self.current_file_path):
+            self.current_file_path = None
+            self.current_image_buffer = None
+            self.preview.clearPhoto()
+            self.preview.setText("請選擇照片")
+            self.file_label.setText("目前尚未選取照片")
+            self.result_label.setText("尚未選取照片")
+
+        # 刪掉的可能是 ★，重新決定目前資料夾的最佳照片
+        recompute_scores(self.aesthetic_weight, self.current_folder)
+        self.refresh_list()
+
+        message = f"已移到資源回收筒：{moved} 張。"
+        if failed:
+            message += f"\n失敗 {len(failed)} 張：\n" + "\n".join(
+                f"{name}：{reason}" for name, reason in failed[:8])
+        self.progress_label.setText("目前處理：—")
+        QMessageBox.information(self, "刪除照片", message)
 
     def show_result(self, file_path):
         row = get_photo(file_path)
@@ -964,12 +1156,9 @@ class PhotoManagerV2(QWidget):
             return
 
         if model_version != MODEL_VERSION:
-            old_version = model_version or "未記錄"
             self.result_label.setText(
-                "此照片為舊模型分析結果，不納入目前版本排序。\n\n"
-                f"舊模型版本\n{old_version}\n\n"
-                f"目前模型版本\n{MODEL_VERSION}\n\n"
-                "請重新分析此照片，或執行批次分析。"
+                "此照片是舊版模型的分數，不納入目前的排序。\n\n"
+                "請按「分析目前照片」或「開始批次分析」重新分析。"
             )
             return
 
@@ -979,11 +1168,8 @@ class PhotoManagerV2(QWidget):
             else "正常"
         )
 
-        aesthetic_mark = (
-            "優秀"
-            if float(aesthetic_score) >= AESTHETIC_THRESHOLD
-            else "—"
-        )
+        # 優秀／良好／普通／待加強，門檻與說明在 ai_inference.aesthetic_grade
+        aesthetic_mark = ai_inference.aesthetic_grade(float(aesthetic_score))
 
         best_text = "是" if is_best == 1 else "否"
         action = "建議檢視" if technical_status == "警告" else "建議保留"
@@ -1002,8 +1188,7 @@ class PhotoManagerV2(QWidget):
             f"技術 {int(round(technical_weight * 100))}%\n\n"
             f"建議\n{suggestion}\n\n"
             f"影像量測附註\n{issues_text}\n"
-            "以上為客觀量測值，不一定代表照片缺陷。\n\n"
-            f"模型版本\n{model_version}"
+            "以上為客觀量測值，不一定代表照片缺陷。"
         )
 
 
