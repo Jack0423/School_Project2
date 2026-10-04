@@ -225,15 +225,24 @@ python preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮放、�
 - 會覆蓋在 Lightroom 手動打的星等。
 - 星等依綜合分，所以會隨權重改變；批次工具用模型端的預設權重（美感 0.6）。
 
-### 桌面前台
+### 桌面前台（童小席）
 
 ```bash
-python arw_viewer_gui.py
+python main_v2.py                        # 照片管理主程式
+python arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
 ```
 
-PyQt6 影像檢視器，載入照片並顯示評分結果。AI 模組載入失敗時會關閉評分功能
-但程式仍可正常瀏覽照片。目前測試檔路徑寫死在 `__main__` 內，
-且只對 `.arw` 做 RAW 分流（`.dng` 會被 PIL 讀成內嵌縮圖）——這支檔案由前台負責人維護。
+`main_v2.py`：選資料夾 → 分析目前照片或整個資料夾 → 依綜合分排序。
+清單符號：★ 目前權重下的最佳照片、△ 技術分低於警告門檻、↻ 舊模型版本的分數（不參加排序與 ★，按批次分析會重跑）。
+
+- 權重滑桿只用資料庫裡的兩個分數重算綜合分，不重跑模型。前台預設美感 0.8，與模型端的 0.6 不同（待組內決定）。
+- 分析結果存在程式旁的 `photos.db`（已列入 `.gitignore`）。換資料夾不會清掉，資料夾裡已刪除的照片會從資料庫移除。
+- 「寫入 XMP 星等」按鈕把目前資料夾 RAW 的星等寫進 `.xmp`（見上一節），**只在按下時寫**。
+  重算分數時不自動寫：已有 `.xmp` 的照片每張要呼叫一次 ExifTool，放在重算裡時，60 張 RAW 拉一格滑桿就卡 22.7 秒。
+- 批次分析目前仍在介面執行緒執行，分析時視窗不能操作（背景執行緒是宋宇宸負責的部分）。
+
+`arw_viewer_gui.py` 是舊版檢視器（測試檔路徑寫死、只對 `.arw` 做 RAW 分流）；
+`arw_viewer_gui_v2.py` 繼承它並改用 `load_image()`，分數與 `evaluate_photo` 完全一致。
 
 ### 訓練
 
@@ -344,7 +353,9 @@ common/                 模型架構、前處理、訓練迴圈的唯一定義
 └── plotting.py         報表圖表的共用樣式（不從 common 匯出，避免推論依賴 matplotlib）
 
 ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + 綜合分
-arw_viewer_gui.py       PyQt6 桌面前台
+main_v2.py              照片管理前台：PyQt6 介面 + SQLite 資料庫（童小席）
+arw_viewer_gui_v2.py    單張檢視與評分（童小席）
+arw_viewer_gui.py       舊版單張檢視器（v2 繼承它）
 check_env.py            環境自檢
 
 train_nima.py           美感模型訓練（single / distribution 雙模式）
@@ -397,5 +408,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 198 個測試。
+目前共 202 個測試。
 細節見 [tests/README.md](tests/README.md)。

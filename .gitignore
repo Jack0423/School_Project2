@@ -54,6 +54,13 @@ burst*.json
 best_pick*.json
 photo_metadata*.json
 
+# 前台（main_v2.py）的分析資料庫，建在程式旁邊。
+# 內容是每張照片的完整路徑與分數，屬於個人資料。
+photos.db
+photos.db-journal
+photos.db-wal
+photos.db-shm
+
 # ── 歸檔的舊程式碼 ────────────────────────────────────
 # _archive/ 內含已停用的舊版腳本，其中 score.py 與 training_labels.csv
 # 帶有個人磁碟路徑（F:\暫存\0223\...），不應外流。

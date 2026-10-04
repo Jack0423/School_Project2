@@ -30,7 +30,11 @@ from tests._util import PROJECT_ROOT
 # arw_viewer_gui.py 是同組成員負責的 PyQt6 前台，不在本次修正範圍內。
 # 它的 emoji 絕大多數是放進 Qt 標籤（不經過主控台編碼，完全沒問題），
 # 只有兩處 print() 會受影響，已列入交接說明請前台負責人處理。
-EXEMPT = {'arw_viewer_gui.py'}
+#
+# main_v2.py、arw_viewer_gui_v2.py 是童小席的前台（2026-10-04 併入）。
+# 清單的勾號、循環箭頭與 emoji 都放在 Qt 的文字裡，不經過主控台編碼；
+# 兩個檔案裡的 print() 已確認只用中文與 [FAIL] 標籤。
+EXEMPT = {'arw_viewer_gui.py', 'main_v2.py', 'arw_viewer_gui_v2.py'}
 
 SKIP_DIRS = {'_archive', '__pycache__', '.venv', 'venv', '.git'}
 
