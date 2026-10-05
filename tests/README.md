@@ -31,6 +31,8 @@ python -m unittest tests.test_evaluate_photo -v
 | `test_xmp_sidecar.py` | XMP 星等寫入（李奇翰的模組）。原始照片一個位元組都不能動；已有 sidecar 時只改 Rating，Lightroom 的調色與色標要保留；RAW+JPG 同名時 JPG 不可蓋掉 RAW 的星等，JPG／PNG／DNG 不寫 sidecar（Lightroom 不讀）；沒有 ExifTool 或 ExifTool 失敗時不可改既有 sidecar、要回報失敗（原本的文字替換會寫出無法解析的 XML 卻回報成功）；解碼必須與 `load_image()` 相同。換回原版時其中 4 項失敗，正好是這四種情況 |
 | `test_frontend_db.py` | 前台（童小席的 `main_v2.py`）的資料庫層。重算分數（滑桿、開資料夾、分析）不可寫 `.xmp`——原本會自動寫，60 張 RAW 拉一格滑桿卡 22.7 秒；「寫入 XMP 星等」只寫目前模型版本、已分析的 RAW，「分析後自動寫入」只寫剛分析的那幾張，結果面板的 LR 星等與寫進 .xmp 的星等同一個換算，結果面板只放結論（沒有附註、不是最佳照片時不顯示，量測文字要跳脫 HTML），星等依目前權重下的綜合分，原始照片不動；★ 只從目前模型版本的分數裡挑；資料庫必須在程式旁、不可用相對路徑（換回童小席原版時其中 3 項失敗）。排序：四種欄位、升降冪，同分依檔名，未分析與舊版本排最後；刪除：照片與 RAW 的 .xmp 一起移走、刪 JPG 不動同名 .xmp、移走失敗時照片與紀錄都要保留、刪掉 ★ 後重新挑最佳照片；篩選與搜尋同時成立、舊版本不算優秀也不算警告；預設權重與模型端相同；資料庫裡舊的建議文字要整理成不重複附註的新寫法，新寫法不可被改動 |
 | `test_shooting_info.py` | 拍攝資訊。有 ExifTool 與只用 PIL 兩條路顯示的文字要相同；Windows 上中文檔名必須以 UTF-8 參數檔傳給 ExifTool（直接放命令列會變亂碼）；沒有 ExifTool 的 RAW、沒有 EXIF 的照片要說明原因；同一張照片只讀一次 |
+| `test_qt_background.py` | 宋宇宸的背景分析（另開一個行程跑 `qt_background_check.py`，模型換成假的）：分析時畫面計時器不停、模型只在一條非主執行緒呼叫、資料庫只在主執行緒寫、分析中不能重複啟動／改權重／刪除／關閉視窗、結束後按鈕照原樣恢復、解碼或資料庫失敗都會釋放並保留錯誤 |
+| `test_batch_comparison.py`、`test_grouping_validation.py` | `compare_batch.py` 與 `validate_grouping.py`：循序與平行的分數必須一致、有失敗或空結果不可判定通過；成對 precision／recall／F1 的計算，空白、重複標註要拒絕，全是單張時不可宣稱 F1 完美 |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
 | `test_metrics.py` | 報表指標（`common/metrics.py`）用手算得出答案的例子逐項驗證：同分樣本不可影響 AUC、沒有判定為正時 F1 是 0 而非 nan、報表的判定方向（`<` / `>`）必須與 `ai_inference.py` 相同。指標算錯不會報錯，只會把錯的數字寫進報告 |
 

@@ -3,12 +3,15 @@ import os
 import shutil
 import sys
 import sqlite3
-import traceback
+from pathlib import Path
+from uuid import uuid4
+
 import numpy as np
 
 import ai_inference
 from raw_processor import RawProcessor, SIDECAR_EXTENSIONS, RATING_THRESHOLDS
 from shooting_info import read_shooting_info, format_shooting_info
+from qt_batch_worker import BatchAnalysisThread
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QListWidget,
     QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox, QCheckBox,
@@ -684,6 +687,9 @@ class PhotoManagerV2(QWidget):
         super().__init__()
         init_db()
 
+        self._analysis_thread = None
+        self._analysis_summary = None
+        self._analysis_error = None
         self.photo_paths = {}
         self.current_folder = None
         self.current_file_path = None
@@ -1030,137 +1036,166 @@ class PhotoManagerV2(QWidget):
 
         self.show_result(file_path)
 
+    # ── 分析（宋宇宸的背景執行緒，2026-10-05 併入）────────────────────
+    # 單張與批次都交給 qt_batch_worker.BatchAnalysisThread：4 條執行緒解碼、
+    # 模型只在一條背景執行緒循序推論；進度用 Qt 訊號回到主執行緒，資料庫也只在主執行緒寫。
+    # 實測 325 張 ARW：84 秒 → 39.7 秒，分析期間畫面最長只停 0.26 秒。
     def analyze_current(self):
+        if self._analysis_thread is not None:
+            return
         if not self.current_file_path:
             self.result_label.setText("請先選擇一張照片。")
             return
-
-        self.result_label.setText("AI 分析中，請稍候…")
-        self._set_progress(0, 1, "分析目前照片…")
-        self.progress_label.setText(f"目前處理：{os.path.basename(self.current_file_path)}")
-        QApplication.processEvents()
-
-        try:
-            if self.current_image_buffer is None:
-                self.current_image_buffer = load_preview_image(self.current_file_path)
-            result = ai_inference.evaluate_photo(
-                self.current_file_path,
-                image=self.current_image_buffer,
-                aesthetic_weight=self.aesthetic_weight
-            )
-        except Exception as e:
-            traceback.print_exc()
-            self.result_label.setText(f"AI 分析失敗：{html.escape(str(e))}")
-            self._set_idle("分析失敗")
-            return
-
-        if not result:
-            error_msg = getattr(ai_inference, "LAST_ERROR", None) or "未知錯誤"
-            self.result_label.setText(f"AI 分析失敗：{html.escape(str(error_msg))}")
-            self._set_idle("分析失敗")
-            return
-
-        update_analysis(self.current_file_path, result, self.aesthetic_weight)
-        recompute_scores(self.aesthetic_weight, self.current_folder)
-        self.refresh_list()
-        self.show_result(self.current_file_path)
-
-        xmp = self._auto_write_xmp([self.current_file_path])
-        self._set_progress(1, 1, "完成")
-        if xmp and (xmp[0] or xmp[2]):
-            self.progress_label.setText(
-                "已寫入 XMP 星等" if xmp[0] else "XMP 星等寫入失敗，原因請看主控台")
-        else:
-            self.progress_label.setText("目前處理：—")
+        self._start_analysis([self.current_file_path])
 
     def analyze_all(self):
+        if self._analysis_thread is not None:
+            return
         if not self.current_folder or not self.photo_paths:
             self.result_label.setText("請先選擇照片資料夾。")
             return
 
-        self.analyze_all_btn.setEnabled(False)
-        self.analyze_current_btn.setEnabled(False)
-        # 跑到一半換資料夾或寫 XMP，最後的重算與星等會用到另一個資料夾或還沒算完的分數
-        self.folder_btn.setEnabled(False)
-        self.xmp_btn.setEnabled(False)
-        self.delete_btn.setEnabled(False)
-        self.select_warn_btn.setEnabled(False)
-        self.auto_xmp_check.setEnabled(False)
+        candidates = []
+        for file_path in self.photo_paths.values():
+            row = get_photo(file_path)
+            if not row or row[13] == 0 or row[7] != MODEL_VERSION:
+                candidates.append(file_path)
 
-        try:
-            # 目前仍為同步版本；背景執行緒之後由宋宇宸的批次管線接口接入。
-            candidates = []
-            for file_name, file_path in self.photo_paths.items():
-                row = get_photo(file_path)
-                if not row or row[13] == 0 or row[7] != MODEL_VERSION:
-                    candidates.append((file_name, file_path))
-
-            if not candidates:
-                self._set_progress(1, 1, "目前資料夾已是最新模型版本")
-                self.progress_label.setText("目前處理：—")
-                QMessageBox.information(self, "完成", "目前資料夾沒有需要重新分析的照片。")
-                return
-
-            total = len(candidates)
-            failed = 0
-            analyzed_paths = []
-
-            for index, (file_name, file_path) in enumerate(candidates, start=1):
-                self._set_progress(index - 1, total, f"{index - 1} / {total}")
-                self.progress_label.setText(f"目前處理：{file_name}")
-                QApplication.processEvents()
-
-                try:
-                    img = load_preview_image(file_path)
-                    result = ai_inference.evaluate_photo(
-                        file_path,
-                        image=img,
-                        aesthetic_weight=self.aesthetic_weight
-                    )
-                except Exception as e:
-                    failed += 1
-                    print(f"分析失敗：{file_name}，原因：{e}")
-                    traceback.print_exc()
-                    continue
-
-                if not result:
-                    failed += 1
-                    error_msg = getattr(ai_inference, "LAST_ERROR", None) or "未知錯誤"
-                    print(f"分析失敗：{file_name}，原因：{error_msg}")
-                    continue
-                update_analysis(file_path, result, self.aesthetic_weight)
-                analyzed_paths.append(file_path)
-
-            recompute_scores(self.aesthetic_weight, self.current_folder)
-            self.refresh_list()
-
-            # 星等要等整批分析完、重算綜合分之後才寫，才會用到目前權重下的分數
-            xmp = self._auto_write_xmp(analyzed_paths)
-            xmp_text = ""
-            if xmp:
-                xmp_text = f"XMP 星等：寫入 {xmp[0]} 張 RAW"
-                if xmp[2]:
-                    xmp_text += f"，失敗 {xmp[2]} 張（原因請看主控台）"
-                xmp_text += "<br><br>"
-
-            self._set_progress(total, total, f"完成 {total - failed} / {total}")
+        if not candidates:
+            self._set_progress(1, 1, "目前資料夾已是最新模型版本")
             self.progress_label.setText("目前處理：—")
+            QMessageBox.information(self, "完成", "目前資料夾沒有需要重新分析的照片。")
+            return
+        self._start_analysis(candidates)
 
-            self.result_label.setText(
-                f"<b>批次分析完成</b><br>成功 {total - failed} 張，失敗 {failed} 張<br><br>"
-                + xmp_text +
-                "★ 目前權重下的最佳照片<br>△ 技術分偏低，建議檢視<br>✓ 已分析<br>↻ 舊版模型的分數，需重新分析"
+    def _start_analysis(self, paths):
+        if self._analysis_thread is not None:
+            return
+        # 權重與資料夾在開始時固定；同一時間只有一個分析，
+        # 模型不會被同時呼叫，ai_inference.LAST_ERROR 也不會互相覆蓋。
+        self._analysis_paths = {str(Path(path).resolve()): os.path.abspath(path)
+                                for path in paths}
+        self._analysis_weight = self.aesthetic_weight
+        self._analysis_folder = self.current_folder
+        self._analysis_summary = None
+        self._analysis_error = None
+        self._analysis_ok_paths = []
+        self._analysis_failures = []
+
+        # 每次分析的完整結果（含相似照片分組要用的 1280 維特徵）存在 reports/batches/
+        output_dir = Path(__file__).resolve().parent / "reports" / "batches"
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output = output_dir / f"batch-{uuid4().hex}.jsonl"
+            worker = BatchAnalysisThread(paths, output, self._analysis_weight, self)
+        except Exception as exc:
+            self.result_label.setText(f"無法啟動分析：{html.escape(str(exc))}")
+            return
+
+        self._analysis_thread = worker
+        self._analysis_output = str(output)
+        # 記下原本的啟用狀態，結束後照原樣恢復（例如「相似照片分組」本來就是停用的）
+        self._analysis_controls = [
+            (control, control.isEnabled()) for control in (
+                self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
+                self.xmp_btn, self.weight_slider, self.delete_btn,
+                self.select_warn_btn, self.group_btn, self.auto_xmp_check,
             )
-            QMessageBox.information(self, "完成", "目前資料夾的 AI 分析已完成。")
+        ]
+        for control, _ in self._analysis_controls:
+            control.setEnabled(False)
 
+        self._set_progress(0, len(paths), f"0 / {len(paths)}")
+        if len(paths) == 1:
+            self.progress_label.setText(f"目前處理：{os.path.basename(paths[0])}")
+        self.result_label.setText("AI 背景分析中，可以繼續瀏覽照片。")
+
+        worker.progress.connect(self._analysis_progress)
+        worker.completed.connect(self._analysis_completed)
+        worker.failed.connect(self._analysis_failed)
+        worker.finished.connect(self._analysis_finished)
+        worker.start()
+
+    def _analysis_progress(self, done, total, record):
+        # 這個方法在主執行緒執行；每個資料庫操作自己開關連線
+        name = os.path.basename(record["path"])
+        if record.get("ok"):
+            path = self._analysis_paths.get(record["path"], record["path"])
+            try:
+                update_analysis(path, record, self._analysis_weight)
+                self._analysis_ok_paths.append(path)
+            except Exception as exc:
+                self._analysis_error = f"資料庫寫入失敗：{exc}"
+        else:
+            self._analysis_failures.append((name, record.get("error") or "未知錯誤"))
+        self._set_progress(done, total, f"{done} / {total}")
+        self.progress_label.setText(f"已處理：{name}")
+
+    def _analysis_completed(self, summary):
+        self._analysis_summary = summary
+
+    def _analysis_failed(self, error):
+        self._analysis_error = error
+
+    def _analysis_finished(self):
+        worker = self._analysis_thread
+        total = len(self._analysis_paths)
+        ok = len(self._analysis_ok_paths)
+        xmp = None
+        try:
+            recompute_scores(self._analysis_weight, self._analysis_folder)
+            self.refresh_list()
+            # 星等要等整批分析完、重算綜合分之後才寫，才會用到目前權重下的分數
+            xmp = self._auto_write_xmp(self._analysis_ok_paths)
+
+            if self._analysis_error:
+                self._set_progress(ok, total, "分析未完整完成")
+                self.result_label.setText(
+                    f"<b>分析未完整完成</b><br>{html.escape(self._analysis_error)}<br><br>"
+                    f"已完成 {ok} 張，結果都已存進資料庫。")
+            elif total == 1 and self._analysis_failures:
+                self._set_progress(0, 1, "分析失敗")
+                self.result_label.setText(
+                    f"AI 分析失敗：{html.escape(self._analysis_failures[0][1])}")
+            elif total == 1 and self.current_file_path and \
+                    os.path.abspath(self.current_file_path) in self._analysis_ok_paths:
+                self._set_progress(1, 1, "完成")
+                self.show_result(self.current_file_path)
+            else:
+                failed = total - ok
+                self._set_progress(total, total, f"完成：成功 {ok} / 失敗 {failed}")
+                text = f"<b>批次分析完成</b><br>成功 {ok} 張，失敗 {failed} 張"
+                if self._analysis_failures:
+                    text += "<br>" + "<br>".join(
+                        f"・{html.escape(name)}：{html.escape(reason)}"
+                        for name, reason in self._analysis_failures[:5])
+                if xmp:
+                    text += f"<br><br>XMP 星等：寫入 {xmp[0]} 張 RAW"
+                    if xmp[2]:
+                        text += f"，失敗 {xmp[2]} 張（原因請看主控台）"
+                text += ("<br><br>★ 目前權重下的最佳照片<br>△ 技術分偏低，建議檢視"
+                         "<br>✓ 已分析<br>↻ 舊版模型的分數，需重新分析")
+                self.result_label.setText(text)
+        except Exception as exc:
+            self.result_label.setText(f"結果更新失敗：{html.escape(str(exc))}")
         finally:
-            self.analyze_all_btn.setEnabled(True)
-            self.analyze_current_btn.setEnabled(True)
-            self.folder_btn.setEnabled(True)
-            self.xmp_btn.setEnabled(True)
-            self.delete_btn.setEnabled(True)
-            self.select_warn_btn.setEnabled(True)
-            self.auto_xmp_check.setEnabled(True)
+            if xmp and (xmp[0] or xmp[2]):
+                self.progress_label.setText(
+                    "已寫入 XMP 星等" if xmp[0] else "XMP 星等寫入失敗，原因請看主控台")
+            else:
+                self.progress_label.setText("目前處理：—")
+            for control, enabled in self._analysis_controls:
+                control.setEnabled(enabled)
+            self._analysis_thread = None
+            worker.deleteLater()
+
+    def closeEvent(self, event):
+        # 不強制中斷正在跑的 GPU／RAW 解碼；等分析完成再關
+        if self._analysis_thread is not None:
+            self.progress_label.setText("請等背景分析完成後再關閉視窗。")
+            event.ignore()
+        else:
+            event.accept()
 
     def auto_xmp_toggled(self, checked):
         if not checked:
@@ -1336,6 +1371,8 @@ class PhotoManagerV2(QWidget):
             self.progress_label.setText("目前資料夾沒有技術警告的照片")
 
     def delete_selected(self):
+        if self._analysis_thread is not None:
+            return
         names = [self.clean_name(item.text()) for item in self.photo_list.selectedItems()]
         paths = [self.photo_paths[name] for name in names if name in self.photo_paths]
         if not paths:

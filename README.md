@@ -258,7 +258,10 @@ python arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
   每次分析完只寫剛分析的那幾張（期末報告 1.2 的 Lightroom 連動）。勾選框預設不勾，勾選時會先說明會新建 `.xmp`、
   會覆蓋 Lightroom 的星等。重算分數（滑桿、開資料夾）時一律不寫：已有 `.xmp` 的照片每張要呼叫一次 ExifTool，
   放在重算裡時，60 張 RAW 拉一格滑桿就卡 22.7 秒。
-- 批次分析目前仍在介面執行緒執行，分析時視窗不能操作（背景執行緒是宋宇宸負責的部分）。
+- 單張與批次分析都在背景執行緒進行（宋宇宸，`qt_batch_worker.py`）：4 條執行緒解碼、模型在一條執行緒循序推論，
+  分析中可以繼續瀏覽照片（325 張 ARW 由 84 秒變為約 40 秒，畫面最長停頓約 0.25 秒）；
+  分析中停用會改動結果的按鈕，也不能關閉視窗。每次分析的完整結果（含分組用的特徵）存在 `reports/batches/`。
+  使用方式、效能比較與分組驗證工具見 [docs/batch_handoff.md](docs/batch_handoff.md)。
 
 `arw_viewer_gui.py` 是舊版檢視器（測試檔路徑寫死、只對 `.arw` 做 RAW 分流）；
 `arw_viewer_gui_v2.py` 繼承它並改用 `load_image()`，分數與 `evaluate_photo` 完全一致。
@@ -390,6 +393,10 @@ photo_grouping.py       以特徵餘弦相似度分組、挑建議保留
 burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別（序號／型號／不比對）
 run_bursts.py           連拍候選命令列入口
 pick_best.py            使用者自己指定一組連拍，只做排名與挑選
+qt_batch_worker.py      前台的背景分析執行緒（宋宇宸）
+compare_batch.py        循序與平行解碼的耗時與分數比較（宋宇宸）
+validate_grouping.py    以人工標註計算分組的 precision／recall／F1（宋宇宸）
+check_without_weights.py  沒有權重時可先跑的測試（宋宇宸）
 
 shooting_info.py        讀拍攝資訊（相機、ISO、快門……），前台結果面板用
 raw_processor.py        XMP 星等寫入與共用解碼（李奇翰）
@@ -428,5 +435,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 225 個測試。
+目前共 234 個測試。
 細節見 [tests/README.md](tests/README.md)。
