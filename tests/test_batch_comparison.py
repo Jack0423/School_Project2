@@ -8,7 +8,6 @@ import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from concurrent.futures import ThreadPoolExecutor
 
 from compare_batch import sequential_batch, read_records, compare_records
 

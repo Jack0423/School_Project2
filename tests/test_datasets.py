@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from common import build_transform
-from tests._util import make_image, write_image
+from tests._util import write_image
 
 
 class _Fixture:

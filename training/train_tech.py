@@ -105,8 +105,8 @@ def main():
     # 權重檔是訓練數小時的產物，覆寫掉就沒了，因此預設拒絕覆蓋。
     if os.path.exists(SAVE_PATH) and not args.force:
         print(f"[FAIL] 權重檔已存在：{SAVE_PATH}")
-        print(f"   訓練會覆蓋它且無法復原。請改用 --save 指定其他檔名，"
-              f"或確認後加上 --force。")
+        print("   訓練會覆蓋它且無法復原。請改用 --save 指定其他檔名，"
+              "或確認後加上 --force。")
         return 1
 
     print(f"[INFO] 訓練集={args.train_csv}  驗證集={args.val_csv}  影像={args.img_dir}")

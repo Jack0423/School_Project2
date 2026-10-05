@@ -128,7 +128,7 @@ def evaluate(name, model, csv_path, img_dir, add_suffix):
         print(f'  {name}：沒有任何影像可評估——{len(skipped)} 張全部讀取失敗')
         if skipped:
             print(f'      首例：{skipped[0]}')
-            print(f'      （檔名若出現多餘的 .0，代表 CSV 的整數欄位被讀成浮點數）')
+            print('      （檔名若出現多餘的 .0，代表 CSV 的整數欄位被讀成浮點數）')
         return None
 
     if skipped:

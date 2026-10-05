@@ -11,7 +11,6 @@ import unittest
 import numpy as np
 import torch
 from PIL import Image
-from torchvision import transforms
 
 from common import build_transform
 from common.transforms import INPUT_SIZE, RESIZE_SIZE, IMAGENET_MEAN, IMAGENET_STD

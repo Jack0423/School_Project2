@@ -6,7 +6,6 @@ data/ 與 *.pth 都在 .gitignore 內，換一台機器 clone 下來不會有這
 若測試在這種情況直接失敗，整份測試就會變成「反正一定紅的」而被忽略，
 失去意義。因此需要真實資料的測試一律標記 skip 並說明缺什麼。
 """
-import os
 import re
 import unittest
 from pathlib import Path

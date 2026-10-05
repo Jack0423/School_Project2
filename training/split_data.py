@@ -94,7 +94,7 @@ def main():
         print(f'[FAIL] 以下輸出檔已存在：{", ".join(existing)}')
         print( '       現役模型是用現有的切分訓練的，重新切分會讓驗證集')
         print( '       混進模型訓練過的照片，新舊模型的比較就失去意義。')
-        print(f'       確定要重新切分請先備份，再加上 --force：')
+        print('       確定要重新切分請先備份，再加上 --force：')
         print(f'           python {os.path.basename(__file__)} --force')
         return 1
 
@@ -111,7 +111,7 @@ def main():
     train_df.to_csv(args.train_out, index=False)
     val_df.to_csv(args.val_out, index=False)
 
-    print(f'[ OK ] 切分完成')
+    print('[ OK ] 切分完成')
     print(f'       {args.train_out:<22} {len(train_df):>5} 筆')
     print(f'       {args.val_out:<22} {len(val_df):>5} 筆')
     print(f'       來源 {args.source} 未被修改')

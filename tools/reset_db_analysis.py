@@ -145,7 +145,7 @@ def main():
         description='清除舊模型尺度的分析結果，讓系統重新分析',
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('db', help='SQLite 資料庫檔路徑')
-    p.add_argument('--table', default='photos', help='資料表名稱（預設 photos）')
+    p.add_argument('--table', default='photos_v2', help='資料表名稱（預設 photos_v2，前台 main_v2.py 用的）')
     p.add_argument('--columns', help='明確指定要清空的欄位，以逗號分隔（略過自動比對）')
     p.add_argument('--apply', action='store_true',
                    help='真正執行寫入。未指定時只試算，不改動任何資料')

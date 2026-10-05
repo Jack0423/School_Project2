@@ -5,7 +5,6 @@ common/metrics.py 的測試。
 這裡用手算得出答案的小例子逐項驗證，不需要權重或資料集。
 """
 import math
-import re
 import unittest
 
 import numpy as np

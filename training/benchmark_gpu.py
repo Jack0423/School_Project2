@@ -807,7 +807,7 @@ def main():
     charts = [] if args.no_charts else make_charts(res, out)
     write_summary(res, out, charts)
     print(f'\n[ OK ] 已寫入 {out}')
-    print(f'       benchmark.json、summary.md' + (f"、{len(charts)} 張圖表" if charts else ''))
+    print('       benchmark.json、summary.md' + (f"、{len(charts)} 張圖表" if charts else ''))
     return 0
 
 

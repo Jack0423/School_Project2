@@ -4,9 +4,7 @@
 這裡用合成影像而非真實照片，因為要測的是「指標在已知條件下的行為」，
 合成影像能精確控制那些條件，也不依賴 .gitignore 掉的資料。
 """
-import tempfile
 import unittest
-from pathlib import Path
 
 import cv2
 import numpy as np

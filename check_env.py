@@ -18,7 +18,6 @@
 """
 import hashlib
 import importlib
-import os
 import platform
 import shutil
 import subprocess

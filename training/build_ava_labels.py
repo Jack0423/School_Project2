@@ -166,7 +166,7 @@ def main():
     existing = [p for p in outputs if os.path.exists(p)]
     if existing and not args.force:
         print(f'[FAIL] 以下輸出檔已存在：{", ".join(existing)}')
-        print(f'   為避免覆蓋，已中止。確定要重新產生請加上 --force。')
+        print('   為避免覆蓋，已中止。確定要重新產生請加上 --force。')
         return 1
 
     print(f'讀取 {GROUND_TRUTH} ...')
@@ -195,14 +195,14 @@ def main():
     val_df.to_csv(OUT_VAL, index=False)
 
     print()
-    print(f'[ OK ] 完成')
+    print('[ OK ] 完成')
     print(f'  {OUT_FULL:<22} {len(df):>5} 張'
           f'（label=1: {int(df["label"].sum())}，label=0: {int((df["label"] == 0).sum())}）')
     print(f'  {OUT_TRAIN:<22} {len(train_df):>5} 張')
     print(f'  {OUT_VAL:<22} {len(val_df):>5} 張')
     print(f'  新增的 {n_new} 張中，{n_new_val} 張分入驗證集、'
           f'{n_new - n_new_val} 張分入訓練集')
-    print(f'  現有的 train.csv 與 val.csv 未被修改')
+    print('  現有的 train.csv 與 val.csv 未被修改')
     return 0
 
 
