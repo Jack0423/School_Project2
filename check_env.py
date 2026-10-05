@@ -281,6 +281,8 @@ def verify():
     print("\n--- 照片管理主程式 main_v2.py ---")
     check_pyqt()
     check_rawpy()
+    check_module("pillow_heif", "HEIC 支援 (pillow-heif)", required=False,
+                 hint="沒有它讀不了 iPhone 的 .HEIC 照片，其他格式不受影響。安裝：pip install pillow-heif==0.22.0")
     check_exiftool()
 
     # ── 總結 ──────────────────────────────────────────

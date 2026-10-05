@@ -60,7 +60,7 @@ pip install -r requirements.txt
 `requirements.txt` 的 `+cu128` 在這些電腦上裝不起來，請直接裝使用系統需要的套件：
 
 ```bash
-pip install torch==2.11.0 torchvision==0.26.0 numpy==2.2.6 Pillow==11.0.0 opencv-python==4.13.0.92 rawpy==0.27.1 PyQt6
+pip install torch==2.11.0 torchvision==0.26.0 numpy==2.2.6 Pillow==11.0.0 opencv-python==4.13.0.92 rawpy==0.27.1 pillow-heif==0.22.0 PyQt6
 ```
 
 版本與 `requirements.txt` 相同（2026-10-05 確認 PyPI 都有 Apple 晶片版本）；少了訓練與報表用的 pandas、SciPy、matplotlib，評分與前台用不到。
@@ -294,6 +294,7 @@ python tools/arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
   一律**移到資源回收筒**（可以還原），不會永久刪除；RAW 旁邊的 `.xmp` 一起移走。
 - 美感標記分四級：優秀（> 62）、良好（> 50）、普通（> 38.6，AVA 好照片的門檻）、待加強。
   門檻與換算說明在 `ai_inference.aesthetic_grade`，F:\testphoto 325 張分布為 40／126／125／34。
+- iPhone 的 HEIC 照片也能分析（需要 pillow-heif，`start.py` 會自動安裝）。直拍照片的方向由 pillow-heif 解碼時轉正，已用 iPhone 14 Pro 直拍實測；HEIC 和 JPG 一樣不寫 `.xmp`。
 - 拍攝資訊（`shooting_info.py`）：結果面板最下面顯示相機、鏡頭、ISO、快門、光圈、焦距、拍攝時間。
   有 ExifTool 時 RAW 與 JPG 都讀得到；沒有 ExifTool 時 JPG／TIFF 改用 PIL，RAW 會提示需要 ExifTool；
   截圖或編修輸出的照片沒有 EXIF 時會說明。每張照片只讀一次（約 0.2 秒）。
@@ -490,5 +491,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 263 個測試。
+目前共 267 個測試。
 細節見 [tests/README.md](tests/README.md)。

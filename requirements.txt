@@ -34,6 +34,10 @@ matplotlib==3.10.9
 #   但遇到 RAW 檔會明確報錯而非靜默失敗。
 rawpy==0.27.1
 
+# pillow-heif：讀取 iPhone 的 .HEIC 照片。沒有它其他格式照樣能評分，遇到 HEIC 會明確報錯。
+#   固定 0.22.0：1.x 起要求 Pillow 11.1 以上，會把上面固定的 Pillow 11.0.0 一起升級。
+pillow-heif==0.22.0
+
 # PyQt6：桌面前台 arw_viewer_gui.py。
 #   模型推論完全不需要它。
 PyQt6

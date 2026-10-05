@@ -43,7 +43,7 @@ def collect_targets(paths):
             unsupported = sum(os.path.splitext(name)[1].lower() in UNSUPPORTED_PHOTO_EXTENSIONS
                               for name in names)
             if unsupported:
-                print(f"[WARN] 略過 {unsupported} 張不支援的照片（例如 iPhone 的 .heic），"
+                print(f"[WARN] 略過 {unsupported} 張不支援的照片（例如 .avif），"
                       f"請先轉成 JPG：{p}")
             if not found:
                 print(f"[WARN] 資料夾內沒有可讀的影像檔：{p}")

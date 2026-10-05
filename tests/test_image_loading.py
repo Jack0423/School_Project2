@@ -270,5 +270,65 @@ class TestImageArrayValidation(unittest.TestCase):
                          '這是本質限制，防線在 evaluate_photo 的 docstring')
 
 
+def _pillow_heif_available():
+    try:
+        import pillow_heif  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+requires_pillow_heif = unittest.skipUnless(_pillow_heif_available(), '未安裝 pillow-heif')
+
+
+class TestHeic(unittest.TestCase):
+    """
+    iPhone 的 HEIC。原本整個格式讀不了，iPhone 拍的資料夾會一張都沒被分析。
+    最要守的是方向：iPhone 直拍的像素是橫的，旋轉記在 HEIF 的 irot 欄位，
+    轉錯的話照片會躺著被評分（JPG 的實測：轉 90 度技術分最多差 10.5）。
+    """
+
+    def test_heic_is_a_supported_format(self):
+        for ext in ('.heic', '.heif'):
+            self.assertIn(ext, ai.IMAGE_EXTENSIONS)
+            self.assertNotIn(ext, ai.UNSUPPORTED_PHOTO_EXTENSIONS)
+
+    @requires_pillow_heif
+    def test_decodes_like_the_original_pixels(self):
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        y, x = np.mgrid[0:96, 0:128]
+        pixels = np.stack([x * 2, y * 2, np.full_like(x, 128)], axis=-1).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / '測試.HEIC'
+            Image.fromarray(pixels).save(path, format='HEIF', quality=95)
+            decoded = ai.load_image(str(path))
+        self.assertEqual(decoded.shape, pixels.shape)
+        self.assertEqual(decoded.dtype, np.uint8)
+        self.assertLess(np.abs(decoded.astype(int) - pixels).mean(), 4, 'HEIC 解碼後的像素和原圖差太多')
+
+    @requires_pillow_heif
+    def test_iphone_portrait_is_upright(self):
+        """data/my_photos 裡的 iPhone 14 Pro 直拍 HEIC：存的是 4032x3024 橫的，轉正後必須是直的。"""
+        photo = find_photo('.heic')
+        if photo is None:
+            self.skipTest(f'{PHOTO_DIR} 裡沒有 .heic 照片')
+        image = ai.load_image(str(photo))
+        self.assertEqual(image.shape, (4032, 3024, 3), '直拍照片沒有轉正（或被轉了兩次）')
+
+    def test_missing_pillow_heif_is_a_clear_error(self):
+        from unittest import mock
+        import sys
+        ready = ai._heif_ready
+        self.addCleanup(setattr, ai, '_heif_ready', ready)
+        ai._heif_ready = False
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'a.heic'
+            path.write_bytes(b'')
+            with mock.patch.dict(sys.modules, {'pillow_heif': None}):
+                with self.assertRaisesRegex(RuntimeError, 'pillow-heif'):
+                    ai.load_image(str(path))
+
+
 if __name__ == '__main__':
     unittest.main()

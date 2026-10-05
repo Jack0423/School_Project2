@@ -325,18 +325,18 @@ class TestMissingMetadata(unittest.TestCase):
 
 @requires_weights   # batch_pipeline 會 import ai_inference，連帶載入模型
 class TestScanFolder(unittest.TestCase):
-    """掃資料夾時，讀不了的照片格式（例如 iPhone 的 .heic）要回報張數，不能當作不存在。"""
+    """掃資料夾時，讀不了的照片格式（例如 .avif）要回報張數，不能當作不存在。"""
 
     def test_counts_unsupported_photos_and_recurses(self):
         from batch_pipeline import scan_folder
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / 'sub').mkdir()
-            for name in ('a.jpg', 'sub/b.ARW', 'c.HEIC', 'sub/d.heic', 'a.xmp', 'notes.txt'):
+            for name in ('a.jpg', 'sub/b.ARW', 'c.AVIF', 'sub/d.avif', 'a.xmp', 'notes.txt'):
                 (base / name).write_bytes(b'')
             photos, skipped = scan_folder(base)
         self.assertEqual(sorted(p.name for p in photos), ['a.jpg', 'b.ARW'])
-        self.assertEqual(skipped, {'.heic': 2}, '.xmp 等附屬檔不該被當成略過的照片')
+        self.assertEqual(skipped, {'.avif': 2}, '.xmp 等附屬檔不該被當成略過的照片')
 
 
 if __name__ == '__main__':

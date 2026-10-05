@@ -16,7 +16,7 @@ def scan_folder(folder):
     遞迴掃描資料夾，回傳 (照片清單, 略過的照片數)。
 
     略過的照片數是 {副檔名: 張數}，只計 ai_inference.UNSUPPORTED_PHOTO_EXTENSIONS
-    裡的格式（例如 iPhone 的 .heic）。.xmp 等附屬檔本來就不是照片，不列入。
+    裡的格式（例如 .avif）。.xmp 等附屬檔本來就不是照片，不列入。
     """
     folder = Path(folder).expanduser().resolve()
 

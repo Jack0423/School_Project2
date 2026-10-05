@@ -1,5 +1,6 @@
 import hashlib
 import os
+import threading
 import traceback
 from pathlib import Path
 import cv2
@@ -141,16 +142,46 @@ RAW_EXTENSIONS = {
     '.raf', '.orf', '.rw2', '.pef', '.srw', '.dcr',
 }
 
+# HEIC／HEIF（iPhone 預設的照片格式）。PIL 本身讀不了，由 pillow-heif 接進 PIL，見 _enable_heif()。
+HEIF_EXTENSIONS = {'.heic', '.heif'}
+
 # 本模組讀得了的所有副檔名（RAW 交給 rawpy，其餘交給 PIL）。
 # 掃資料夾的程式（score.py、batch_pipeline.py、前台）一律用這一份，
 # 不要各自抄一份——原本兩份清單就已經不一致（一份有 .webp、一份沒有）。
-IMAGE_EXTENSIONS = RAW_EXTENSIONS | {
+IMAGE_EXTENSIONS = RAW_EXTENSIONS | HEIF_EXTENSIONS | {
     '.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp',
 }
 
 # 常見、但本模組讀不了的照片格式。掃資料夾遇到時要告訴使用者略過了幾張，
-# 不能安靜地當作不存在——例如 iPhone 預設存 HEIC，整個資料夾可能一張都沒被分析。
-UNSUPPORTED_PHOTO_EXTENSIONS = {'.heic', '.heif', '.avif', '.jxl'}
+# 不能安靜地當作不存在（HEIC 原本也在這裡，iPhone 拍的整個資料夾會一張都沒被分析）。
+UNSUPPORTED_PHOTO_EXTENSIONS = {'.avif', '.jxl'}
+
+_heif_lock = threading.Lock()
+_heif_ready = False
+
+
+def _enable_heif():
+    """
+    讓 PIL 讀得了 HEIC。延遲匯入：沒裝 pillow-heif 的環境照樣能評分其他格式，遇到 HEIC 才明確報錯。
+    批次分析有 4 條執行緒同時解碼，註冊只做一次，用鎖保護。
+
+    方向：iPhone 直拍的 HEIC 像素是橫的（4032x3024），旋轉記在 HEIF 自己的 irot 欄位（EXIF 也寫了 Rotate 90 CW）。
+    pillow-heif 解碼時就轉正成 3024x4032，並把 EXIF Orientation 改成 1，
+    所以後面的 exif_transpose 不會再轉一次（2026-10-05 以 3 張 iPhone 14 Pro 直拍實測，轉正後方向正確）。
+    """
+    global _heif_ready
+    with _heif_lock:
+        if _heif_ready:
+            return
+        try:
+            import pillow_heif
+        except ImportError:
+            raise RuntimeError(
+                "讀取 HEIC（iPhone 照片）需要 pillow-heif 套件，但它並未安裝"
+                "｜請執行：pip install pillow-heif==0.22.0（或執行 start.py 自動安裝）"
+            ) from None
+        pillow_heif.register_heif_opener()
+        _heif_ready = True
 
 # RAW 預設以「半尺寸」解碼（rawpy 的 half_size：2x2 像素合成一個，跳過去馬賽克）。
 #
@@ -461,6 +492,9 @@ def _load_image_array(img_path, half_size=None):
 
         with rawpy.imread(img_path) as raw:
             return raw.postprocess(**raw_postprocess_params(half_size))
+
+    if ext in HEIF_EXTENSIONS:
+        _enable_heif()
 
     with Image.open(img_path) as im:
         # 依 EXIF 方向轉正（2026-09-25 起，SCORING_REVISION 2）。

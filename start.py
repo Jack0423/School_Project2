@@ -24,7 +24,8 @@ CUDA_INDEX = "https://download.pytorch.org/whl/cu128"
 # 開主程式需要的套件：pip 名稱 → import 名稱。版本一律讀 requirements.txt，不在這裡另寫一份。
 # pandas、SciPy、matplotlib 只有訓練與報表用到，不在這裡裝。
 RUNTIME_PACKAGES = {"torch": "torch", "torchvision": "torchvision", "numpy": "numpy",
-                    "Pillow": "PIL", "opencv-python": "cv2", "rawpy": "rawpy", "PyQt6": "PyQt6"}
+                    "Pillow": "PIL", "opencv-python": "cv2", "rawpy": "rawpy", "pillow-heif": "pillow_heif",
+                    "PyQt6": "PyQt6"}
 
 
 def requirement_specs(path=ROOT / "requirements.txt"):

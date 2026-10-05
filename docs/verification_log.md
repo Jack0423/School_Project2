@@ -35,7 +35,7 @@
 
 | 項目 | 數字 |
 |---|---|
-| 單元測試 | 263 項，全數通過（期間由 109 項增加而來） |
+| 單元測試 | 267 項，全數通過（期間由 109 項增加而來） |
 | 美感模型 | SRCC 0.7925 / PLCC 0.8872（AVA 驗證集 1,400 張） |
 | 技術模型 | SRCC 0.7951 / PLCC 0.8314（KonIQ 驗證集 2,015 張） |
 | 半尺寸解碼 | 整條管線快 4.3 倍，325 張（15 GB）從 2 分 03 秒降為 26 ～ 30 秒 |
@@ -116,6 +116,13 @@
 
 兩種寫法寫出的星等逐張相同，Lightroom 的調色與色標都保留。前台「寫入 XMP 星等」與「分析後自動寫入」都改用批次版。
 
+### 3.5 HEIC（2026-10-05）
+
+3 張 iPhone 14 Pro 直拍 HEIC（`F:\testing_photo\heic_file`，只讀）：檔案存的是 4032×3024 橫的，EXIF 與 HEIF 的 irot 都記「Rotate 90 CW」。
+pillow-heif 0.22.0 解碼時就轉正成 3024×4032，並把 EXIF Orientation 改成 1，程式原本的 `exif_transpose` 不會再轉一次；
+縮圖目視確認方向正確。三張評分、拍攝資訊（ExifTool）、前台批次分析與分組都正常（3 張 1.1 秒）。
+pillow-heif 固定 0.22.0：1.x 起要求 Pillow 11.1 以上，會把固定的 Pillow 11.0.0 一起升級。
+
 ### 3.4 前台分組的底層（2026-10-05）
 
 真實模型、`F:\testing_photo\testphoto` 325 張 ARW（照片只讀；資料庫與結果檔放暫存資料夾，不勾自動寫入 XMP）：
@@ -174,6 +181,7 @@ ExifTool 讀 325 張的拍攝時間一次約 8 秒（`-fast2` 較快但會讀不
 | 10-05 | 253 | 分組底層：特徵與拍攝時間存進資料庫、`group_folder` |
 | 10-05 | 255 | XMP 失敗原因顯示在畫面上 |
 | 10-05 | 263 | 一鍵啟動（start.py）、權重放進 repo、腳本整理到 tools／training |
+| 10-05 | 267 | 支援 iPhone 的 HEIC |
 
 ---
 
@@ -497,7 +505,7 @@ RAW 在 09-23 改為預設半尺寸解碼（3.1 節），而上面的校準全�
 ## 九、重現方式
 
 ```bash
-python -m unittest discover -s tests -t .          # 263 項測試
+python -m unittest discover -s tests -t .          # 267 項測試
 python training/eval_models.py                              # 模型指標
 python training/compare_aesthetic_models.py                 # 美感模型版本比較
 python tools/run_batch.py <資料夾> --output batch.jsonl   # 批次分析
