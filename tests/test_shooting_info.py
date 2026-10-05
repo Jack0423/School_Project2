@@ -22,13 +22,10 @@ import shooting_info as si
 
 requires_exiftool = unittest.skipUnless(shutil.which('exiftool'), '未安裝 ExifTool')
 
-EXPECTED_TEXT = ('相機　　TestCam X1\n'
-                 '鏡頭　　Test 35mm F2.8\n'
-                 'ISO　　 800\n'
-                 '快門　　1/250 秒\n'
-                 '光圈　　f/2.8\n'
-                 '焦距　　35 mm\n'
-                 '拍攝時間　2026-10-04 10:20:30')
+EXPECTED_TEXT = ('TestCam X1\n'
+                 'Test 35mm F2.8\n'
+                 'ISO 800 · 1/250 秒 · f/2.8 · 35 mm\n'
+                 '2026-10-04 10:20:30')
 
 
 def write_jpg(path, with_exif=True):
@@ -94,7 +91,7 @@ class TestShootingInfo(unittest.TestCase):
     def test_partial_info_only_shows_what_exists(self):
         # 實例：手機截圖只有拍攝時間
         text = si.format_shooting_info({'DateTimeOriginal': '2025:10:21 18:00:23'})
-        self.assertEqual(text, '拍攝時間　2025-10-21 18:00:23')
+        self.assertEqual(text, '2025-10-21 18:00:23')
 
 
 if __name__ == '__main__':

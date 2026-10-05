@@ -96,22 +96,29 @@ def format_shooting_info(info, reason=""):
     if not info:
         return reason or "這張照片沒有拍攝資訊（常見於截圖或經過編修輸出的照片）"
 
-    # 一項一行：結果面板很窄，排在同一行會被切斷（例如「127」與「mm」分到兩行）
+    # 攝影常見的寫法，不加欄位名稱：相機、鏡頭、一行曝光參數、拍攝時間。
+    # 曝光參數之間用「 · 」：「｜」加全形空白太長，在結果面板裡被切斷（例如「127」與「mm」分到兩行）；
+    # 只用全形空白的話，畫面上會被縮成一般空白而擠在一起。
     lines = []
     if info.get("Model"):
-        lines.append(f"相機　　{info['Model']}")
+        lines.append(str(info["Model"]))
     if info.get("LensModel"):
-        lines.append(f"鏡頭　　{info['LensModel']}")
+        lines.append(str(info["LensModel"]))
+
+    exposure = []
     if "ISO" in info:
-        lines.append(f"ISO　　 {info['ISO']}")
+        exposure.append(f"ISO {info['ISO']}")
     if "ExposureTime" in info:
-        lines.append(f"快門　　{info['ExposureTime']} 秒")
+        exposure.append(f"{info['ExposureTime']} 秒")
     if "FNumber" in info:
-        lines.append(f"光圈　　f/{float(info['FNumber']):g}")
+        exposure.append(f"f/{float(info['FNumber']):g}")
     if "FocalLength" in info:
-        lines.append(f"焦距　　{str(info['FocalLength']).replace('.0 mm', ' mm')}")
+        exposure.append(str(info["FocalLength"]).replace(".0 mm", " mm"))
+    if exposure:
+        lines.append(" · ".join(exposure))
+
     if "DateTimeOriginal" in info:
         date, _, time = str(info["DateTimeOriginal"]).partition(" ")
-        lines.append(f"拍攝時間　{date.replace(':', '-')} {time}".rstrip())
+        lines.append(f"{date.replace(':', '-')} {time}".rstrip())
 
     return "\n".join(lines) if lines else "這張照片沒有拍攝資訊（常見於截圖或經過編修輸出的照片）"

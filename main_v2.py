@@ -1,3 +1,4 @@
+import html
 import os
 import shutil
 import sys
@@ -6,11 +7,11 @@ import traceback
 import numpy as np
 
 import ai_inference
-from raw_processor import RawProcessor, SIDECAR_EXTENSIONS
+from raw_processor import RawProcessor, SIDECAR_EXTENSIONS, RATING_THRESHOLDS
 from shooting_info import read_shooting_info, format_shooting_info
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QListWidget,
-    QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox,
+    QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox, QCheckBox,
     QProgressBar, QFrame, QComboBox, QAbstractItemView, QLineEdit
 )
 from PyQt6.QtGui import QPixmap, QImage, QKeySequence, QShortcut
@@ -219,6 +220,23 @@ def sort_rows(rows, key_index, descending):
     return scored + others
 
 
+def rating_text(overall_score):
+    """
+    寫進 XMP 時會是幾星，例如「★★★☆☆（54～64 分）」。結果面板很窄，括號裡只寫綜合分的範圍。
+
+    綜合分跟著權重滑桿變，星等也會跟著變；要再寫一次 XMP，Lightroom 裡的星等才會更新。
+    """
+    stars = RawProcessor.map_score_to_rating(overall_score)
+    lowers = dict(RATING_THRESHOLDS)
+    if stars == 5:
+        span = f"{lowers[5]} 分以上"
+    elif stars == 1:
+        span = f"未滿 {lowers[2]} 分"
+    else:
+        span = f"{lowers[stars]}～{lowers[stars + 1]} 分"
+    return f"{'★' * stars}{'☆' * (5 - stars)}（{span}）"
+
+
 def display_suggestion(text):
     """
     建議的顯示文字。
@@ -235,6 +253,93 @@ def display_suggestion(text):
     if sep:
         text = head + "），可能成因見影像量測附註。"
     return text
+
+
+# 結果面板的顏色：綠＝好、橙＝要注意、金＝星等與最佳照片、灰＝附註說明
+_GOOD = "#8FD19E"
+_WARN = "#F2B04A"
+_GOLD = "#F5C451"
+_DIM = "#8A8A8A"
+
+
+def _rating_span(stars):
+    lowers = dict(RATING_THRESHOLDS)
+    if stars == 5:
+        return f"{lowers[5]} 分以上"
+    if stars == 1:
+        return f"未滿 {lowers[2]} 分"
+    return f"{lowers[stars]}～{lowers[stars + 1]} 分"
+
+
+RATING_HELP = "Lightroom 星等依綜合分換算：" + "、".join(
+    f"{_rating_span(s)} {s} 星" for s in (5, 4, 3, 2, 1))
+
+
+def result_html(row, shooting_text):
+    """
+    結果面板的內容（HTML）。
+
+    原本 15 行左右的「欄位　值」清單，同一件事分好幾行講（美感分數／美感標記、技術分數／技術狀態、
+    系統建議／建議）。改成：分數與等級同一行，用顏色分好壞；建議只留一句；
+    量測附註條列，沒有就不顯示；最佳照片只在「是」的時候顯示。
+    """
+    (_, _, aes, tech, overall, _, _, version, _, suggestion, _, issues, is_best, analyzed) = row
+    blocks = []
+
+    if not analyzed:
+        blocks.append("<b>尚未分析</b><br>請按「分析目前照片」或「開始批次分析」。")
+    elif version != MODEL_VERSION:
+        blocks.append("<b>舊版模型的分數</b><br>不納入目前的排序，請重新分析。")
+    else:
+        aes, tech, overall = float(aes), float(tech), float(overall)
+        warn = tech < TECH_THRESHOLD
+        grade = ai_inference.aesthetic_grade(aes)
+        grade_color = _GOOD if grade in ("優秀", "良好") else (_WARN if grade == "待加強" else "")
+        stars = RawProcessor.map_score_to_rating(overall)
+
+        table_rows = (
+            ("美感", f"{aes:.1f}", grade, grade_color),
+            ("技術", f"{tech:.1f}", "警告" if warn else "正常", _WARN if warn else _GOOD),
+            ("綜合", f"{overall:.1f}", "★" * stars + "☆" * (5 - stars), _GOLD),
+        )
+        cells = "".join(
+            f'<tr><td>{name}</td><td align="right">&nbsp;&nbsp;{value}&nbsp;&nbsp;</td>'
+            f'<td style="color:{color or "#EAEAEA"};">{html.escape(mark)}</td></tr>'
+            for name, value, mark, color in table_rows)
+        head = f'<span style="color:{_GOLD};">★ 這個資料夾目前的最佳照片</span><br>' if is_best else ""
+        blocks.append(
+            head + f'<table cellspacing="0" cellpadding="1">{cells}</table>'
+            f'<span style="color:{_DIM}; font-size:12px;">星等＝寫入 Lightroom 的評等</span>')
+
+        verdict = "建議檢視" if warn else "建議保留"
+        blocks.append(f'<b style="color:{_WARN if warn else _GOOD};">{verdict}</b><br>'
+                      f"{html.escape(display_suggestion(suggestion))}")
+
+        items = [i for i in (issues or "").split("；") if i.strip()]
+        if items:
+            blocks.append(
+                f'<b>影像量測附註</b> <span style="color:{_DIM}; font-size:12px;">僅供參考，不一定是缺陷</span><br>'
+                + "<br>".join(f"・{html.escape(i)}" for i in items))
+
+    shooting = "<br>".join(html.escape(line) for line in shooting_text.splitlines())
+    blocks.append(f"<b>拍攝資訊</b><br>{shooting}")
+    return "<br><br>".join(blocks)
+
+
+def folder_summary(rows):
+    """標題列右邊的資料夾統計，例如「共 325 張・已分析 325・技術警告 154・美感優秀 40」。"""
+    current = [r for r in rows if _is_current(r)]
+    parts = [f"共 {len(rows)} 張", f"已分析 {len(current)}"]
+    warn = sum(r[3] < TECH_THRESHOLD for r in current)
+    excellent = sum(ai_inference.aesthetic_grade(r[2]) == "優秀" for r in current)
+    old = sum(1 for r in rows if r[13] and r[7] != MODEL_VERSION)
+    if warn:
+        parts.append(f"技術警告 {warn}")
+    if excellent:
+        parts.append(f"美感優秀 {excellent}")
+    if old:
+        parts.append(f"需重新分析 {old}")
+    return "・".join(parts)
 
 
 def _is_current(row):
@@ -505,11 +610,12 @@ def recompute_scores(aesthetic_weight, folder):
     conn.close()
 
 
-def write_xmp_ratings(folder, on_progress=None):
+def write_xmp_ratings(folder, on_progress=None, only_paths=None):
     """
     把目前資料夾 RAW 的星等寫進旁邊的 .xmp（李奇翰的 RawProcessor.safe_update_xmp）。
 
-    只由「寫入 XMP 星等」按鈕呼叫，不在 recompute_scores 裡自動寫：
+    兩個地方會呼叫：「寫入 XMP 星等」按鈕（整個資料夾），以及勾選「分析後自動寫入 XMP」時
+    分析完的那幾張（only_paths）。不在 recompute_scores 裡寫：
     已有 .xmp 的照片每張都要呼叫一次 ExifTool（實測約 0.4 秒），
     放在重算裡時，開資料夾、分析一張、滑桿每動一格都會把整個資料夾重寫一次
     （60 張 RAW 拉一格就卡 22.7 秒），而且會一直覆蓋使用者在 Lightroom 打的星等。
@@ -517,6 +623,9 @@ def write_xmp_ratings(folder, on_progress=None):
     只寫目前模型版本、已分析的 RAW；星等依資料庫裡目前權重下的綜合分。
     回傳 (寫入張數, 略過的非 RAW 張數, 失敗張數)。
     """
+    if only_paths is not None:
+        only_paths = {os.path.abspath(p) for p in only_paths}
+
     targets = []
     skipped = 0
     for row in get_photos_in_folder(folder):
@@ -525,6 +634,8 @@ def write_xmp_ratings(folder, on_progress=None):
         model_version = row[7]
         analyzed = row[13]
 
+        if only_paths is not None and os.path.abspath(file_path) not in only_paths:
+            continue
         if not analyzed or overall_score is None or model_version != MODEL_VERSION:
             continue
         # JPG、PNG、DNG：Lightroom 不讀它們旁邊的 .xmp
@@ -628,6 +739,7 @@ class PhotoManagerV2(QWidget):
                 background-color: #303030; color: #F5F5F5;
                 border: 1px solid #4A4A4A; border-radius: 6px; padding: 6px 10px;
             }
+            QCheckBox { color: #EAEAEA; spacing: 6px; }
             QLineEdit {
                 background-color: #303030; color: #F5F5F5;
                 border: 1px solid #4A4A4A; border-radius: 6px; padding: 6px 10px;
@@ -655,11 +767,43 @@ class PhotoManagerV2(QWidget):
         top_buttons.addWidget(self.analyze_current_btn)
         top_buttons.addWidget(self.analyze_all_btn)
         top_buttons.addWidget(self.xmp_btn)
+        # 期末報告寫的「分析後自動寫入 XMP」。預設不勾：平常不在照片資料夾產生檔案
+        self.auto_xmp_check = QCheckBox("分析後自動寫入 XMP")
+        self.auto_xmp_check.setToolTip("勾選後，每次分析完會把剛分析的 RAW 星等寫進旁邊的 .xmp")
+        top_buttons.addWidget(self.auto_xmp_check)
         top_buttons.addWidget(self.group_btn)
         top_buttons.addStretch()
 
+        # 右上：排序偏好（權重滑桿）。原本放在右下，移上來讓分析結果有更多空間
+        default_percent = round(DEFAULT_AESTHETIC_WEIGHT * 100)
+        weight_title = QLabel("排序偏好")
+        weight_title.setStyleSheet("font-weight: 700;")
+        self.weight_slider = QSlider(Qt.Orientation.Horizontal)
+        self.weight_slider.setRange(0, 100)
+        self.weight_slider.setValue(default_percent)
+        self.weight_slider.setFixedWidth(170)
+        self.weight_slider.setToolTip("調整美感與技術分數的比重。只重新計算綜合分、排序與星等，不會重新執行 AI 分析。")
+        self.weight_label = QLabel(f"美感 {default_percent}%  /  技術 {100 - default_percent}%")
+        self.weight_label.setMinimumWidth(150)
+        # 完整版本字串太長，只顯示最後的 rev，完整字串放在滑鼠提示
+        self.model_label = QLabel(f"模型 {MODEL_VERSION.rsplit('|', 1)[-1]}")
+        self.model_label.setToolTip(MODEL_VERSION)
+        self.model_label.setStyleSheet("color: #777777; font-size: 11px;")
+        top_buttons.addWidget(weight_title)
+        top_buttons.addWidget(self.weight_slider)
+        top_buttons.addWidget(self.weight_label)
+        top_buttons.addWidget(self.model_label)
+
+        # 標題列右邊：目前資料夾與統計（原本在照片清單上方，移上來讓清單變窄）
+        self.folder_label = QLabel("尚未選擇資料夾")
+        self.folder_label.setStyleSheet("color: #AAAAAA;")
+        title_row = QHBoxLayout()
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(self.folder_label)
+
         top = QVBoxLayout()
-        top.addWidget(title)
+        top.addLayout(title_row)
         top.addLayout(top_buttons)
 
         # 左：目前資料夾照片清單
@@ -668,9 +812,6 @@ class PhotoManagerV2(QWidget):
         left = QVBoxLayout(left_panel)
         left_title = QLabel("照片清單")
         left_title.setStyleSheet("font-size: 17px; font-weight: 700;")
-        self.folder_label = QLabel("尚未選擇資料夾")
-        self.folder_label.setStyleSheet("color: #AAAAAA;")
-        self.folder_label.setWordWrap(True)
         self.count_label = QLabel("照片數量：0 張")
 
         # 排序：欄位＋升降冪
@@ -702,14 +843,13 @@ class PhotoManagerV2(QWidget):
 
         self.select_warn_btn = QPushButton("選取技術警告")
         self.select_warn_btn.setToolTip("一次選取所有 △（技術分低於警告門檻）的照片，刪除前可以再取消幾張")
-        self.delete_btn = QPushButton("刪除選取的照片")
+        self.delete_btn = QPushButton("刪除選取")
         self.delete_btn.setToolTip("移到資源回收筒，可以還原；RAW 旁邊的 .xmp 也會一起移走")
         delete_row = QHBoxLayout()
         delete_row.addWidget(self.select_warn_btn)
         delete_row.addWidget(self.delete_btn)
 
         left.addWidget(left_title)
-        left.addWidget(self.folder_label)
         left.addWidget(self.count_label)
         left.addLayout(sort_row)
         left.addLayout(filter_row)
@@ -747,54 +887,26 @@ class PhotoManagerV2(QWidget):
         right_title = QLabel("AI 分析結果")
         right_title.setStyleSheet("font-size: 17px; font-weight: 700;")
 
-        self.result_label = QLabel("尚未分析")
+        self.result_label = QLabel("尚未選取照片")
+        self.result_label.setTextFormat(Qt.TextFormat.RichText)
         self.result_label.setWordWrap(True)
         self.result_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.result_label.setStyleSheet("background-color: #1D1D1D; border-radius: 6px; padding: 12px;")
 
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("color: #3A3A3A;")
-
-        weight_title = QLabel("照片排序偏好")
-        weight_title.setStyleSheet("font-weight: 700;")
-        default_percent = round(DEFAULT_AESTHETIC_WEIGHT * 100)
-        self.weight_label = QLabel(f"美感 {default_percent}%   /   技術 {100 - default_percent}%")
-        self.weight_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.weight_slider = QSlider(Qt.Orientation.Horizontal)
-        self.weight_slider.setRange(0, 100)
-        self.weight_slider.setValue(default_percent)
-        self.weight_hint = QLabel("調整權重僅重新計算排序，不會重新執行 AI 分析。")
-        self.weight_hint.setWordWrap(True)
-        self.weight_hint.setStyleSheet("color: #9A9A9A; font-size: 12px;")
-
-        # 完整版本字串太長會被切掉，畫面只顯示最後的 rev，完整字串放在滑鼠提示
-        self.model_label = QLabel(f"模型版本 {MODEL_VERSION.rsplit('|', 1)[-1]}")
-        self.model_label.setToolTip(MODEL_VERSION)
-        self.model_label.setWordWrap(True)
-        self.model_label.setStyleSheet("color: #888888; font-size: 11px;")
-
         right.addWidget(right_title)
         right.addWidget(self.result_label, 1)
-        right.addWidget(divider)
-        right.addWidget(weight_title)
-        right.addWidget(self.weight_label)
-        right.addWidget(self.weight_slider)
-        right.addWidget(self.weight_hint)
-        right.addWidget(self.model_label)
 
+        # 照片清單縮窄，讓預覽大一點
         body = QHBoxLayout()
-        body.addWidget(left_panel, 24)
-        body.addWidget(center_panel, 52)
-        body.addWidget(right_panel, 24)
+        body.addWidget(left_panel, 17)
+        body.addWidget(center_panel, 58)
+        body.addWidget(right_panel, 25)
 
         # 下：進度列，之後可直接接背景批次分析 on_progress callback
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("尚未開始分析")
-        self.progress_label = QLabel("目前處理：—")
+        self.progress_label = QLabel()
         self.progress_label.setStyleSheet("color: #AFAFAF;")
+        self._set_idle("尚未開始分析")
 
         bottom = QVBoxLayout()
         bottom.addWidget(self.progress_bar)
@@ -807,9 +919,11 @@ class PhotoManagerV2(QWidget):
 
         self.folder_btn.clicked.connect(self.choose_folder)
         self.photo_list.itemClicked.connect(self.show_photo)
+        self.photo_list.itemSelectionChanged.connect(self._selection_changed)
         self.analyze_current_btn.clicked.connect(self.analyze_current)
         self.analyze_all_btn.clicked.connect(self.analyze_all)
         self.xmp_btn.clicked.connect(self.write_xmp)
+        self.auto_xmp_check.toggled.connect(self.auto_xmp_toggled)
         self.weight_slider.valueChanged.connect(self.weight_changed)
         self.sort_combo.currentIndexChanged.connect(self.sort_field_changed)
         self.sort_order_btn.clicked.connect(self.toggle_sort_order)
@@ -820,6 +934,27 @@ class PhotoManagerV2(QWidget):
         QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.photo_list,
                   activated=self.delete_selected)
 
+    # ── 下方進度列與提示 ──────────────────────────────────
+    # 所有地方都經過這三個方法。原本各處自己設定，留下幾個不會更新的情況：
+    # 分析單張時進度範圍還停在上一次批次（顯示「完成」但進度列是空的）、
+    # 分析失敗後一直顯示「目前處理：壞檔名」、換資料夾後還顯示上一個資料夾的狀態、
+    # 選取改變後還顯示「已選取 N 張技術警告的照片」。
+    def _set_progress(self, done, total, text):
+        self.progress_bar.setRange(0, max(total, 1))
+        self.progress_bar.setValue(done)
+        self.progress_bar.setFormat(text)
+
+    def _set_idle(self, bar_text="待命"):
+        self._set_progress(0, 1, bar_text)
+        self.progress_label.setText("目前處理：—")
+
+    def _selection_changed(self):
+        count = len(self.photo_list.selectedItems())
+        if count > 1:
+            self.progress_label.setText(f"已選取 {count} 張照片，按「刪除選取」或 Delete 鍵可移到資源回收筒")
+        else:
+            self.progress_label.setText("目前處理：—")
+
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "選擇照片資料夾")
         if not folder:
@@ -828,6 +963,7 @@ class PhotoManagerV2(QWidget):
         self.current_folder = os.path.abspath(folder)
         self.current_file_path = None
         self.current_image_buffer = None
+        self._set_idle()
 
         # 以目前硬碟內容同步這個資料夾；其他資料夾的 DB 紀錄不受影響。
         existing_paths = set()
@@ -900,8 +1036,7 @@ class PhotoManagerV2(QWidget):
             return
 
         self.result_label.setText("AI 分析中，請稍候…")
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("分析目前照片…")
+        self._set_progress(0, 1, "分析目前照片…")
         self.progress_label.setText(f"目前處理：{os.path.basename(self.current_file_path)}")
         QApplication.processEvents()
 
@@ -915,24 +1050,28 @@ class PhotoManagerV2(QWidget):
             )
         except Exception as e:
             traceback.print_exc()
-            self.result_label.setText(f"AI 分析失敗：{e}")
-            self.progress_bar.setFormat("分析失敗")
+            self.result_label.setText(f"AI 分析失敗：{html.escape(str(e))}")
+            self._set_idle("分析失敗")
             return
 
         if not result:
             error_msg = getattr(ai_inference, "LAST_ERROR", None) or "未知錯誤"
-            self.result_label.setText(f"AI 分析失敗：{error_msg}")
-            self.progress_bar.setFormat("分析失敗")
-            self.progress_label.setText("目前處理：—")
+            self.result_label.setText(f"AI 分析失敗：{html.escape(str(error_msg))}")
+            self._set_idle("分析失敗")
             return
 
         update_analysis(self.current_file_path, result, self.aesthetic_weight)
         recompute_scores(self.aesthetic_weight, self.current_folder)
         self.refresh_list()
         self.show_result(self.current_file_path)
-        self.progress_bar.setValue(100)
-        self.progress_bar.setFormat("完成")
-        self.progress_label.setText("目前處理：—")
+
+        xmp = self._auto_write_xmp([self.current_file_path])
+        self._set_progress(1, 1, "完成")
+        if xmp and (xmp[0] or xmp[2]):
+            self.progress_label.setText(
+                "已寫入 XMP 星等" if xmp[0] else "XMP 星等寫入失敗，原因請看主控台")
+        else:
+            self.progress_label.setText("目前處理：—")
 
     def analyze_all(self):
         if not self.current_folder or not self.photo_paths:
@@ -946,6 +1085,7 @@ class PhotoManagerV2(QWidget):
         self.xmp_btn.setEnabled(False)
         self.delete_btn.setEnabled(False)
         self.select_warn_btn.setEnabled(False)
+        self.auto_xmp_check.setEnabled(False)
 
         try:
             # 目前仍為同步版本；背景執行緒之後由宋宇宸的批次管線接口接入。
@@ -956,18 +1096,17 @@ class PhotoManagerV2(QWidget):
                     candidates.append((file_name, file_path))
 
             if not candidates:
-                self.progress_bar.setValue(100)
-                self.progress_bar.setFormat("目前資料夾已是最新模型版本")
+                self._set_progress(1, 1, "目前資料夾已是最新模型版本")
+                self.progress_label.setText("目前處理：—")
                 QMessageBox.information(self, "完成", "目前資料夾沒有需要重新分析的照片。")
                 return
 
             total = len(candidates)
             failed = 0
-            self.progress_bar.setRange(0, total)
+            analyzed_paths = []
 
             for index, (file_name, file_path) in enumerate(candidates, start=1):
-                self.progress_bar.setValue(index - 1)
-                self.progress_bar.setFormat(f"{index - 1} / {total}")
+                self._set_progress(index - 1, total, f"{index - 1} / {total}")
                 self.progress_label.setText(f"目前處理：{file_name}")
                 QApplication.processEvents()
 
@@ -990,17 +1129,27 @@ class PhotoManagerV2(QWidget):
                     print(f"分析失敗：{file_name}，原因：{error_msg}")
                     continue
                 update_analysis(file_path, result, self.aesthetic_weight)
+                analyzed_paths.append(file_path)
 
             recompute_scores(self.aesthetic_weight, self.current_folder)
             self.refresh_list()
-            self.progress_bar.setValue(total)
-            self.progress_bar.setFormat(f"完成 {total - failed} / {total}")
+
+            # 星等要等整批分析完、重算綜合分之後才寫，才會用到目前權重下的分數
+            xmp = self._auto_write_xmp(analyzed_paths)
+            xmp_text = ""
+            if xmp:
+                xmp_text = f"XMP 星等：寫入 {xmp[0]} 張 RAW"
+                if xmp[2]:
+                    xmp_text += f"，失敗 {xmp[2]} 張（原因請看主控台）"
+                xmp_text += "<br><br>"
+
+            self._set_progress(total, total, f"完成 {total - failed} / {total}")
             self.progress_label.setText("目前處理：—")
 
             self.result_label.setText(
-                f"批次分析完成\n\n成功：{total - failed} 張\n失敗：{failed} 張\n\n"
-                "★ 目前權重下最佳照片\n△ 技術品質需檢視\n✓ 已分析\n\n"
-                "權重滑桿只重算既有分數，不會重新執行模型。"
+                f"<b>批次分析完成</b><br>成功 {total - failed} 張，失敗 {failed} 張<br><br>"
+                + xmp_text +
+                "★ 目前權重下的最佳照片<br>△ 技術分偏低，建議檢視<br>✓ 已分析<br>↻ 舊版模型的分數，需重新分析"
             )
             QMessageBox.information(self, "完成", "目前資料夾的 AI 分析已完成。")
 
@@ -1011,6 +1160,35 @@ class PhotoManagerV2(QWidget):
             self.xmp_btn.setEnabled(True)
             self.delete_btn.setEnabled(True)
             self.select_warn_btn.setEnabled(True)
+            self.auto_xmp_check.setEnabled(True)
+
+    def auto_xmp_toggled(self, checked):
+        if not checked:
+            return
+        answer = QMessageBox.question(
+            self, "分析後自動寫入 XMP",
+            "勾選後，每次分析完會把剛分析的 RAW 星等寫進旁邊的 .xmp，給 Lightroom 讀取。\n\n"
+            "沒有 .xmp 的照片會新建一個小檔案（約 250 bytes）；\n"
+            "已經有的只改星等，但會覆蓋在 Lightroom 裡打過的星等。\n"
+            "原始照片不會被修改。\n\n"
+            "確定要開啟嗎？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.auto_xmp_check.setChecked(False)
+
+    def _auto_write_xmp(self, paths):
+        """勾選「分析後自動寫入 XMP」時，寫剛分析完的照片。沒勾或沒有照片時回傳 None。"""
+        if not self.auto_xmp_check.isChecked() or not paths:
+            return None
+
+        def on_progress(done, total, file_path):
+            self._set_progress(done, total, f"寫入 XMP {done} / {total}")
+            self.progress_label.setText(f"目前處理：{os.path.basename(file_path)}")
+            QApplication.processEvents()
+
+        return write_xmp_ratings(self.current_folder, on_progress, only_paths=paths)
 
     def write_xmp(self):
         if not self.current_folder:
@@ -1027,14 +1205,13 @@ class PhotoManagerV2(QWidget):
             return
 
         controls = (self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
-                    self.xmp_btn, self.weight_slider, self.delete_btn, self.select_warn_btn)
+                    self.xmp_btn, self.weight_slider, self.delete_btn, self.select_warn_btn,
+                    self.auto_xmp_check)
         for control in controls:
             control.setEnabled(False)
 
         def on_progress(done, total, file_path):
-            self.progress_bar.setRange(0, total)
-            self.progress_bar.setValue(done)
-            self.progress_bar.setFormat(f"寫入 XMP {done} / {total}")
+            self._set_progress(done, total, f"寫入 XMP {done} / {total}")
             self.progress_label.setText(f"目前處理：{os.path.basename(file_path)}")
             QApplication.processEvents()
 
@@ -1044,7 +1221,7 @@ class PhotoManagerV2(QWidget):
             for control in controls:
                 control.setEnabled(True)
 
-        self.progress_bar.setFormat("XMP 寫入完成")
+        self._set_progress(1, 1, "XMP 寫入完成")
         self.progress_label.setText("目前處理：—")
 
         if not (written or skipped or failed):
@@ -1085,6 +1262,7 @@ class PhotoManagerV2(QWidget):
         _, key_index = SORT_KEYS[self.sort_combo.currentIndex()]
         all_rows = get_photos_in_folder(self.current_folder)
         self.rows_by_name = {row[0]: row for row in all_rows}
+        self.folder_label.setText(f"{self.current_folder}　　{folder_summary(all_rows)}")
         # 批次分析用 photo_paths 決定要分析哪些照片，所以放整個資料夾，不受篩選影響
         self.photo_paths.update({row[0]: row[1] for row in all_rows})
         rows = filter_rows(sort_rows(all_rows, key_index, self.sort_descending),
@@ -1203,71 +1381,19 @@ class PhotoManagerV2(QWidget):
 
         if not row:
             self.result_label.setText("尚未分析")
+            self.result_label.setToolTip("")
             return
-
-        (
-            file_name,
-            file_path,
-            aesthetic_score,
-            technical_score,
-            overall_score,
-            aesthetic_weight,
-            technical_weight,
-            model_version,
-            _stored_status,
-            suggestion,
-            _stored_action,
-            technical_issues,
-            is_best,
-            analyzed,
-        ) = row
 
         # 拍攝資訊與分析無關，還沒分析的照片也顯示；同一張照片只讀一次（約 0.2 秒）
-        shooting = "\n\n拍攝資訊\n" + format_shooting_info(*read_shooting_info(file_path))
+        shooting = format_shooting_info(*read_shooting_info(file_path))
+        self.result_label.setText(result_html(row, shooting))
 
-        if analyzed == 0:
-            self.result_label.setText(
-                "尚未分析\n\n"
-                "請按「分析目前照片」或「開始批次分析」。"
-                + shooting
-            )
-            return
-
-        if model_version != MODEL_VERSION:
-            self.result_label.setText(
-                "此照片是舊版模型的分數，不納入目前的排序。\n\n"
-                "請按「分析目前照片」或「開始批次分析」重新分析。"
-                + shooting
-            )
-            return
-
-        technical_status = (
-            "警告"
-            if float(technical_score) < TECH_THRESHOLD
-            else "正常"
-        )
-
-        # 優秀／良好／普通／待加強，門檻與說明在 ai_inference.aesthetic_grade
-        aesthetic_mark = ai_inference.aesthetic_grade(float(aesthetic_score))
-
-        best_text = "是" if is_best == 1 else "否"
-        action = "建議檢視" if technical_status == "警告" else "建議保留"
-        issues_text = technical_issues if technical_issues else "無"
-
-        self.result_label.setText(
-            f"美感分數　{aesthetic_score:.2f}\n"
-            f"技術分數　{technical_score:.2f}\n"
-            f"綜合分數　{overall_score:.2f}\n\n"
-            f"美感標記　{aesthetic_mark}\n"
-            f"技術狀態　{technical_status}\n"
-            f"最佳照片　{best_text}\n"
-            f"系統建議　{action}\n\n"
-            f"建議\n{display_suggestion(suggestion)}\n\n"
-            f"影像量測附註\n{issues_text}\n"
-            "以上為客觀量測值，不一定代表照片缺陷。"
-            + shooting
-        )
-
+        overall, model_version, analyzed = row[4], row[7], row[13]
+        if analyzed and model_version == MODEL_VERSION and overall is not None:
+            self.result_label.setToolTip(
+                f"這張寫入 Lightroom 會是 {rating_text(float(overall))}\n{RATING_HELP}")
+        else:
+            self.result_label.setToolTip(RATING_HELP)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

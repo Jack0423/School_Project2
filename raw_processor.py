@@ -13,6 +13,16 @@ from ai_inference import RAW_EXTENSIONS, load_image
 # 因此只幫這些格式寫 sidecar。
 SIDECAR_EXTENSIONS = RAW_EXTENSIONS - {'.dng'}
 
+# 綜合分 → 星等：(星等, 綜合分下限)，都不到就是 1 星。
+#
+# 2026-10-04 依實際照片重訂。原本的 65／54／43／32 是在前台預設權重 0.8、只有 28 張照片時訂的；
+# 權重改為 0.6 後綜合分整體變高，935 張實拍中 1 星 0%、5 星 28%，星等幾乎分不開。
+# 改以預設權重 0.6 下的 935 張實拍（F:\testing_photo 的 0810 共 610 張、testphoto 共 325 張）為準，
+# 目標 1～5 星約 10%／20%／40%／20%／10%，實測 9%／19%／41%／22%／10%。
+# 兩個資料夾各自的分布不同（0810 偏高；testphoto 多為高 ISO 夜景、偏低），
+# 星等反映的是照片本身，不是在資料夾內排名。
+RATING_THRESHOLDS = ((5, 69), (4, 64), (3, 54), (2, 47))
+
 
 class RawProcessor:
     @staticmethod
@@ -22,17 +32,11 @@ class RawProcessor:
 
     @staticmethod
     def map_score_to_rating(score):
-        """依據新模型綜合分尺度映射星等"""
-        if score >= 65:
-            return 5
-        elif score >= 54:
-            return 4
-        elif score >= 43:
-            return 3
-        elif score >= 32:
-            return 2
-        else:
-            return 1
+        """依據綜合分映射星等（門檻見 RATING_THRESHOLDS）"""
+        for rating, lower in RATING_THRESHOLDS:
+            if score >= lower:
+                return rating
+        return 1
 
     @staticmethod
     def decode_image_rgb(file_path):

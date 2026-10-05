@@ -116,6 +116,62 @@ class TestFrontendDatabase(unittest.TestCase):
         for name in PHOTOS:
             self.assertEqual((self.folder / name).read_bytes(), FAKE_RAW, f'{name} 被改到了')
 
+    def test_auto_write_only_touches_just_analyzed_photos(self):
+        """「分析後自動寫入 XMP」只寫剛分析完的那幾張，不可以把整個資料夾重寫一次。"""
+        self.m.recompute_scores(0.6, str(self.folder))
+        with mock.patch('builtins.print'):
+            result = self.m.write_xmp_ratings(
+                str(self.folder), only_paths=[str(self.folder / 'a.ARW'), str(self.folder / 'c.jpg')])
+
+        self.assertEqual(result, (1, 1, 0), '寫 a.ARW；c.jpg 是 JPG，略過')
+        self.assertEqual(self._xmp_files(), ['a.xmp'], 'b.NEF 沒有剛分析，不可以被寫')
+
+    def test_rating_line_matches_what_xmp_will_write(self):
+        """結果面板的「LR 星等」與寫進 .xmp 的星等必須是同一個換算。"""
+        from raw_processor import RawProcessor
+        cases = {70.0: '★★★★★（69 分以上）',
+                 60.0: '★★★☆☆（54～64 分）',
+                 47.0: '★★☆☆☆（47～54 分）',
+                 40.0: '★☆☆☆☆（未滿 47 分）'}
+        for score, text in cases.items():
+            with self.subTest(score=score):
+                self.assertEqual(self.m.rating_text(score), text)
+                self.assertEqual(text.count('★'), RawProcessor.map_score_to_rating(score))
+
+    # ── 結果面板與資料夾統計 ──────────────────────────────
+    def _full_row(self, aes=66.0, tech=94.9, overall=77.6, current=True, analyzed=1,
+                  suggestion='照片品質良好。', issues='', is_best=0):
+        version = self.m.MODEL_VERSION if current else '舊版'
+        return ('p.ARW', 'p.ARW', aes, tech, overall, 0.6, 0.4, version, '', suggestion, '', issues,
+                is_best, analyzed)
+
+    def test_result_panel_is_compact(self):
+        text = self.m.result_html(self._full_row(), 'ILCE-7M3')
+        for expected in ('優秀', '正常', '★★★★★', '建議保留', '拍攝資訊', 'ILCE-7M3'):
+            self.assertIn(expected, text)
+        for removed in ('模型版本', '評分權重', '影像量測附註', '最佳照片'):
+            self.assertNotIn(removed, text, f'{removed} 不該出現（沒有附註、不是最佳照片時都不顯示）')
+
+    def test_result_panel_warning_and_escaping(self):
+        issues = '疑似對焦不準（清晰度指標 12.0，建議 >= 100）；曝光不足，死黑區域佔比 21.9%'
+        text = self.m.result_html(self._full_row(tech=52.0, overall=55.0, issues=issues,
+                                                 suggestion='整體技術品質偏低（技術分 52.0，低於門檻 60），可能成因見影像量測附註。',
+                                                 is_best=1), '')
+        for expected in ('警告', '建議檢視', '影像量測附註', '&gt;= 100', '最佳照片'):
+            self.assertIn(expected, text)
+        self.assertNotIn('>= 100', text, '量測文字要跳脫，否則 > 會被當成 HTML')
+        self.assertEqual(text.count('\u30fb'), 2, '每個附註各一行')   # 條列符號（cp950 編不出來，用跳脫寫）
+
+    def test_result_panel_for_unanalyzed_and_old_version(self):
+        self.assertIn('尚未分析', self.m.result_html(self._full_row(analyzed=0), ''))
+        self.assertIn('舊版模型', self.m.result_html(self._full_row(current=False), ''))
+
+    def test_folder_summary(self):
+        rows = [self._row('a.ARW', 70, 80), self._row('b.ARW', 50, 40), self._row('c.ARW', 40, 90),
+                self._row('d.ARW', 60, 70, current=False), self._row('e.ARW', None, None, analyzed=0)]
+        self.assertEqual(self.m.folder_summary(rows),
+                         '\u30fb'.join(['共 5 張', '已分析 3', '技術警告 1', '美感優秀 1', '需重新分析 1']))
+
     def test_progress_callback_reports_every_write(self):
         self.m.recompute_scores(0.6, str(self.folder))
         seen = []

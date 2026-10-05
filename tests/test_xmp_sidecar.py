@@ -146,7 +146,7 @@ class TestSafeUpdateXmp(unittest.TestCase):
         with mock.patch('raw_processor.shutil.which', return_value=None):
             ok, _ = self.rp.safe_update_xmp(str(photo), 40.0)
         self.assertTrue(ok, '新建 sidecar 不需要 ExifTool')
-        self.assertEqual(xmp_fields(self.dir / 'DSC0004.xmp')[XMP_RATING], '2')
+        self.assertEqual(xmp_fields(self.dir / 'DSC0004.xmp')[XMP_RATING], '1')
 
     def test_non_raw_gets_no_sidecar(self):
         for name in ('IMG_0001.jpg', 'IMG_0002.JPEG', 'scan.png', 'DSC0005.dng'):
@@ -158,8 +158,9 @@ class TestSafeUpdateXmp(unittest.TestCase):
                                  f'{name} 不該有 sidecar：Lightroom 不讀')
 
     def test_rating_boundaries(self):
-        cases = [(65, 5), (64.99, 4), (54, 4), (53.99, 3), (43, 3),
-                 (42.99, 2), (32, 2), (31.99, 1), (0, 1)]
+        # 2026-10-04 依 935 張實拍重訂（見 raw_processor.RATING_THRESHOLDS）
+        cases = [(69, 5), (68.99, 4), (64, 4), (63.99, 3), (54, 3),
+                 (53.99, 2), (47, 2), (46.99, 1), (0, 1)]
         for score, stars in cases:
             with self.subTest(score=score):
                 self.assertEqual(self.rp.map_score_to_rating(score), stars)
@@ -214,9 +215,9 @@ class TestBatchRefresh(unittest.TestCase):
                     mock.patch('builtins.print'):
                 batch_refresh_xmp(str(base))
 
-            # 60 分是 4 星；同名 JPG 的 40 分（2 星）不可蓋掉它
-            self.assertEqual(xmp_fields(base / 'DSC0001.xmp')[XMP_RATING], '4')
-            self.assertEqual(xmp_fields(base / 'DSC0003.xmp')[XMP_RATING], '5')
+            # 60 分是 3 星；同名 JPG 的 40 分（1 星）不可蓋掉它
+            self.assertEqual(xmp_fields(base / 'DSC0001.xmp')[XMP_RATING], '3')
+            self.assertEqual(xmp_fields(base / 'DSC0003.xmp')[XMP_RATING], '4')
             self.assertFalse((base / 'IMG_0002.xmp').exists(), 'JPG 不該有 sidecar')
             for name in self.SCORES:
                 self.assertEqual((base / name).read_bytes(), FAKE_RAW + name.encode(),
