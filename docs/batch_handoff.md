@@ -6,7 +6,7 @@
 - 工作執行緒使用既有 `batch_pipeline.analyze_batch()`；4 個執行緒解碼，模型只由一個背景執行緒循序呼叫。
 - 進度透過 Qt signal 回到主執行緒；SQLite 更新與介面操作留在主執行緒。
 - 分析期間固定權重與資料夾，禁止重複分析、改權重、刪除（含快捷鍵）、寫 XMP 和換資料夾。仍可瀏覽照片。結束或失敗後恢復按鈕原狀。
-- 執行中關閉視窗會提示等分析完成；沒有強制終止 GPU／RAW 工作的取消功能。
+- 執行中關閉視窗會提示等分析完成；沒有強制終止 GPU／RAW 工作的取消功能。（併入後已加上「取消分析」，見文末併入紀錄）
 - 每次結果保存在 `reports/batches/batch-<唯一識別碼>.jsonl`，保留分組需要的特徵、成功與失敗紀錄。既有資料庫仍只保存原本欄位。
 - `compare_batch.py` 可產出循序／平行的逐張三項分數、差異、耗時與加速比。
 - `validate_grouping.py` 可建立人工標註表，再依真實標註計算誤分、漏分、precision、recall、F1、pair accuracy 與完全一致群組比例。
@@ -105,3 +105,7 @@ python -m unittest tests.test_batch_comparison tests.test_grouping_validation te
 - 上方「全專案測試另跑 132 項…不能宣稱全套測試已通過」是缺少權重時的紀錄，現在有權重時全部通過。
 - 兩份測試紀錄檔（`tests_batch_handoff.log`、`tests_full_handoff.log`）是缺少權重時的結果，沒有放進 repo；
   其中 `tests_full_handoff.log` 含個人電腦路徑。
+- 之後加上「取消分析」（王凱立）：`analyze_batch()` 新增 `should_stop`，每推論完一張檢查一次；
+  `BatchAnalysisThread.cancel()` 設定旗標，前台進度條旁的按鈕呼叫它。手上這張推論完就停（不強制中斷 GPU／RAW 解碼），
+  已完成的照常寫進資料庫與 `reports/batches/` 的結果檔，回傳值多一個 `cancelled`。
+  分析中關閉視窗改成先詢問，選「是」就取消並在停下後自動關閉。測試見 `tests/test_batch_cancel.py` 與 `qt_background_check.py`。

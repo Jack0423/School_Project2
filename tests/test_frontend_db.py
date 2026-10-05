@@ -90,10 +90,12 @@ class TestFrontendDatabase(unittest.TestCase):
         self.assertEqual(path.resolve().parent, PROJECT_ROOT)
 
     def test_recompute_does_not_write_xmp(self):
-        with mock.patch('raw_processor.RawProcessor.safe_update_xmp') as write:
+        with mock.patch('raw_processor.RawProcessor.safe_update_xmp') as write, \
+                mock.patch('raw_processor.RawProcessor.update_ratings') as batch:
             self.m.recompute_scores(0.6, str(self.folder))
 
         write.assert_not_called()
+        batch.assert_not_called()
         self.assertEqual(self._xmp_files(), [], '重算分數（滑桿、開資料夾）不可以寫 .xmp')
 
         best = [r[0] for r in self.m.get_photos_in_folder(str(self.folder)) if r[12] == 1]

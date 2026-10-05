@@ -31,53 +31,83 @@ KonIQ 的驗證集是自己隨機切的 20%，**不是**官方的 test 切分（
 
 ---
 
-## 安裝
+## 安裝（換一台電腦也照這個做）
 
-需要 Python 3.10+（開發環境為 3.10.11 / Windows 11）。
+需要 Python 3.10 以上（開發環境為 3.10.11 / Windows 11）。Mac 內建的 `python3` 可能是 3.9，請另外安裝；
+Mac 上以下指令的 `python`、`pip` 請改成 `python3`、`pip3`。
 
-```bash
-pip install -r requirements.txt
-```
+1. 下載程式：`git clone https://github.com/Jack0423/School_Project2.git`，或在 GitHub 頁面下載 ZIP。
+2. 安裝套件（依電腦選一種，見下面）。
+3. 放模型權重：不在 GitHub 上，見「[需要另外準備的檔案](#需要另外準備的檔案)」。
+4. 安裝 ExifTool（建議）：同一節。
+5. `python check_env.py`：逐項列出還缺什麼、怎麼補，沒有 `[FAIL]` 就能評分。
+6. `python main_v2.py` 開啟照片管理主程式。
 
-**CUDA 版本不可隨意更動。** `requirements.txt` 鎖定 `torch==2.11.0+cu128`，
-一般 PyPI 索引沒有這些版本，必須指定 PyTorch 官方索引：
+**Windows＋NVIDIA 顯卡（開發環境）**：
 
 ```bash
 pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+pip install -r requirements.txt
 ```
 
-原因：開發用的 RTX 5070 Ti 是 sm_120 架構，較舊的 cu121 只編譯到 sm_90，
+`requirements.txt` 鎖定 `torch==2.11.0+cu128`，一般 PyPI 索引沒有這個版本，所以第一行要先從 PyTorch 官方索引裝。
+**CUDA 版本不可隨意更動**：開發用的 RTX 5070 Ti 是 sm_120 架構，較舊的 cu121 只編譯到 sm_90，
 `torch.cuda.is_available()` 會回 `True` 但實際運算拋
 `CUDA error: no kernel image is available`。詳見 `requirements.txt` 內的完整說明。
 
-裝完先自檢：
+**Mac（Apple 晶片）或沒有 NVIDIA 顯卡的 Windows**：用 CPU 版的 PyTorch。
+`requirements.txt` 的 `+cu128` 在這些電腦上裝不起來，請直接裝使用系統需要的套件：
 
 ```bash
-python check_env.py
+pip install torch==2.11.0 torchvision==0.26.0 numpy==2.2.6 Pillow==11.0.0 opencv-python==4.13.0.92 rawpy==0.27.1 PyQt6
 ```
 
-它會逐項檢查每個依賴（每項獨立 try，缺套件也能印出完整報告），
-`[必要]` 項目缺失會以離開代碼 1 結束。
+版本與 `requirements.txt` 相同（2026-10-05 確認 PyPI 都有 Apple 晶片版本）；少了訓練與報表用的 pandas、SciPy、matplotlib，評分與前台用不到。
+CPU 單張約 50 ms，一般使用足夠。Intel 晶片的 Mac 沒有這一版 PyTorch 與 rawpy，沒有測試過。
+
+`check_env.py` 每項獨立檢查（缺套件也能印出完整報告），最後的總結列出每一項怎麼補；
+缺少評分必需的項目時以離開代碼 1 結束。
 
 ---
 
 ## 需要另外準備的檔案
 
-以下兩類**不在版本庫內**（見 `.gitignore`），需自行取得：
+以下**不在版本庫內**（見 `.gitignore`），需自行取得：
 
-### 1. 模型權重（4 個 `.pth`，約 36 MB）
+### 1. 模型權重（不在 GitHub 上）
 
-放在專案根目錄。`ai_inference.py` 實際載入的是：
+這個 repo 是公開的，權重不放上來。**請向王凱立索取雲端下載連結**；連結不要貼到 repo、issue 或其他公開的地方。
+
+下載後放在專案根目錄（和 `main_v2.py` 同一層），檔名不要改。使用系統只需要這兩個（各約 9 MB）：
 
 - `nima_aes_dist.pth` — 美感（評分分佈版，目前採用）
 - `nima_tech_best.pth` — 技術
 
-另有兩個歷史權重供對照：`nima_aes_binary.pth`（舊二元美感）、`nima_best.pth`。
+另有兩個歷史權重只供對照實驗：`nima_aes_binary.pth`（舊二元美感）、`nima_best.pth`；沒有也不影響評分，`check_env.py` 會列為警告，可以不理。
+
+放好後執行 `python check_env.py`。它會核對兩個權重的 SHA-256 前 8 碼（美感 `71dbd9e1`、技術 `e39a98f4`，
+與前台記的模型版本相同）。下載不完整或拿到舊版時，檔名一樣、也可能載得起來，但分數會和大家的不一樣，所以會另外提醒。
 
 **權重缺席時系統會明確失敗，絕不產生任何分數**——寧可關閉評分功能，
 也不要顯示隨機權重算出的假數字（`tests/test_startup_guards.py` 守住這條）。
+還沒拿到權重時，可以先用 `python check_without_weights.py` 跑不需要權重的測試（見 [docs/no_weights_quickstart.md](docs/no_weights_quickstart.md)）。
 
-### 2. 資料集（僅訓練與評估需要，約 2.1 GB）
+### 2. ExifTool（建議安裝）
+
+ExifTool 不是 Python 套件，pip 裝不到。沒有它時評分照常，但：已經有 `.xmp` 的 RAW 無法更新星等（沒有 `.xmp` 的照片新建不受影響）、
+RAW 讀不到拍攝資訊、連拍判定前也無法匯出拍攝時間（`run_bursts.py`）。
+
+- **Windows**：到 <https://exiftool.org> 下載 Windows 版（Windows Executable 的 zip），解壓縮後：
+  1. 把 `exiftool(-k).exe` 改名為 `exiftool.exe`。檔名裡的 `(-k)` 會讓它執行完停住等按鍵，程式呼叫時會卡住。
+  2. 把 `exiftool.exe` 和 `exiftool_files` 資料夾一起放到固定位置（例如 `C:\Tools\ExifTool`）。只複製 exe 會無法執行。
+  3. 把這個資料夾加進 PATH：開始 → 搜尋「編輯您帳戶的環境變數」→ Path → 編輯 → 新增。
+
+  下載頁也有 Windows 安裝程式，會自動加入 PATH（開發電腦就是這樣裝的，位置在 `%LOCALAPPDATA%\Programs\ExifTool`）。
+- **Mac**：`brew install exiftool`，或下載頁的 macOS 安裝檔（.pkg）。
+
+裝完要**重開命令列視窗**（PATH 才會更新），`exiftool -ver` 印出版本號就成功；開著的前台也要重開才會用到。
+
+### 3. 資料集（僅訓練與評估需要，約 2.1 GB）
 
 標註 CSV 已包含在版本庫內（`data/*.csv`，僅相對檔名，無個資），影像檔需自備：
 
@@ -217,7 +247,10 @@ python preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮放、�
 
 把綜合分換成 1–5 星（69 分以上 5 星、64 以上 4 星、54 以上 3 星、47 以上 2 星；2026-10-04 依 935 張實拍在預設權重 0.6 下重訂，1～5 星約 10／20／40／20／10%），
 寫進照片旁的 `.xmp`，Lightroom 讀取中繼資料後就會顯示星等。
-前台要寫星等時呼叫 `raw_processor.RawProcessor.safe_update_xmp(照片路徑, 綜合分)`，回傳 `(是否成功, 星等)`。
+寫一張用 `raw_processor.RawProcessor.safe_update_xmp(照片路徑, 綜合分)`，回傳 `(是否成功, 星等)`；
+一次寫很多張用 `RawProcessor.update_ratings([(照片路徑, 綜合分), ...])`，回傳同順序的 `[(是否成功, 星等), ...]`，前台用的是這個。
+兩者結果相同，差在已有 `.xmp` 的照片：ExifTool 每次啟動約 0.4 秒，逐張改就每張啟動一次；
+批次版把同一個星等的照片交給同一次 ExifTool（最多 5 次），60 張已有 `.xmp` 的 RAW 由 27.7 秒變 2.5 秒。某一組失敗時退回逐張處理，才知道是哪幾張。
 
 - **原始照片一律不寫。** 沒有 `.xmp` 就新建一個；已經有的（例如在 Lightroom 調過色）只用 ExifTool 改 Rating，調色與色標保留。
 - **只寫相機原生 RAW，不含 DNG。** Lightroom 不讀 JPG、PNG、DNG 旁邊的 `.xmp`；而且 RAW+JPG 同時拍攝時兩張檔名相同，會寫到同一個 `.xmp` 互相蓋掉星等。
@@ -256,11 +289,14 @@ python arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
 - 分析結果存在程式旁的 `photos.db`（已列入 `.gitignore`）。換資料夾不會清掉，資料夾裡已刪除的照片會從資料庫移除。
 - XMP 星等（見上一節）有兩種寫法：「寫入 XMP 星等」按鈕寫整個資料夾的 RAW；勾選「分析後自動寫入 XMP」時，
   每次分析完只寫剛分析的那幾張（期末報告 1.2 的 Lightroom 連動）。勾選框預設不勾，勾選時會先說明會新建 `.xmp`、
-  會覆蓋 Lightroom 的星等。重算分數（滑桿、開資料夾）時一律不寫：已有 `.xmp` 的照片每張要呼叫一次 ExifTool，
-  放在重算裡時，60 張 RAW 拉一格滑桿就卡 22.7 秒。
+  會覆蓋 Lightroom 的星等。兩種寫法都用批次版 `update_ratings`（同星等共用一次 ExifTool）。
+  重算分數（滑桿、開資料夾）時一律不寫：會一直覆蓋使用者在 Lightroom 打的星等；
+  而且原本逐張呼叫 ExifTool 時，60 張 RAW 拉一格滑桿就卡 22.7 秒。
 - 單張與批次分析都在背景執行緒進行（宋宇宸，`qt_batch_worker.py`）：4 條執行緒解碼、模型在一條執行緒循序推論，
   分析中可以繼續瀏覽照片（325 張 ARW 由 84 秒變為約 40 秒，畫面最長停頓約 0.25 秒）；
-  分析中停用會改動結果的按鈕，也不能關閉視窗。每次分析的完整結果（含分組用的特徵）存在 `reports/batches/`。
+  分析中停用會改動結果的按鈕。每次分析的完整結果（含分組用的特徵）存在 `reports/batches/`。
+- 取消分析：進度條旁的「取消分析」會等手上這張推論完就停（不強制中斷 GPU 與 RAW 解碼），
+  已完成的照片照常存進資料庫與結果檔，沒做到的下次再分析。分析中關閉視窗會先詢問，選「是」就取消並在停下後自動關閉。
   使用方式、效能比較與分組驗證工具見 [docs/batch_handoff.md](docs/batch_handoff.md)。
 
 `arw_viewer_gui.py` 是舊版檢視器（測試檔路徑寫死、只對 `.arw` 做 RAW 分流）；
@@ -378,7 +414,7 @@ ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + �
 main_v2.py              照片管理前台：PyQt6 介面 + SQLite 資料庫（童小席）
 arw_viewer_gui_v2.py    單張檢視與評分（童小席）
 arw_viewer_gui.py       舊版單張檢視器（v2 繼承它）
-check_env.py            環境自檢
+check_env.py            環境自檢（換電腦時先跑：缺什麼、怎麼補、權重是不是同一版）
 
 train_nima.py           美感模型訓練（single / distribution 雙模式）
 train_tech.py           技術模型訓練
@@ -435,5 +471,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 234 個測試。
+目前共 239 個測試。
 細節見 [tests/README.md](tests/README.md)。

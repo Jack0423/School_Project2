@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QFrame, QComboBox, QAbstractItemView, QLineEdit
 )
 from PyQt6.QtGui import QPixmap, QImage, QKeySequence, QShortcut
-from PyQt6.QtCore import Qt, QPoint, QFile
+from PyQt6.QtCore import Qt, QPoint, QFile, QTimer
 
 
 class PhotoPreviewLabel(QLabel):
@@ -615,11 +615,11 @@ def recompute_scores(aesthetic_weight, folder):
 
 def write_xmp_ratings(folder, on_progress=None, only_paths=None):
     """
-    把目前資料夾 RAW 的星等寫進旁邊的 .xmp（李奇翰的 RawProcessor.safe_update_xmp）。
+    把目前資料夾 RAW 的星等寫進旁邊的 .xmp（李奇翰的 RawProcessor.update_ratings）。
 
     兩個地方會呼叫：「寫入 XMP 星等」按鈕（整個資料夾），以及勾選「分析後自動寫入 XMP」時
     分析完的那幾張（only_paths）。不在 recompute_scores 裡寫：
-    已有 .xmp 的照片每張都要呼叫一次 ExifTool（實測約 0.4 秒），
+    修改已有的 .xmp 要呼叫 ExifTool（每次啟動約 0.4 秒；批次寫入時同星等共用一次），
     放在重算裡時，開資料夾、分析一張、滑桿每動一格都會把整個資料夾重寫一次
     （60 張 RAW 拉一格就卡 22.7 秒），而且會一直覆蓋使用者在 Lightroom 打的星等。
 
@@ -647,22 +647,14 @@ def write_xmp_ratings(folder, on_progress=None, only_paths=None):
             continue
         targets.append((file_path, overall_score))
 
-    written = 0
-    failed = 0
-    for index, (file_path, overall_score) in enumerate(targets, start=1):
-        try:
-            ok, _ = RawProcessor.safe_update_xmp(file_path, overall_score)
-        except Exception as e:
-            print(f"XMP 更新失敗：{file_path}：{e}")
-            ok = False
-
-        if ok:
-            written += 1
-        else:
-            failed += 1
-
-        if on_progress:
-            on_progress(index, len(targets), file_path)
+    # 批次寫入：已有 .xmp 的照片同星等一組交給一次 ExifTool（原本每張啟動一次，325 張要將近 2 分鐘）
+    try:
+        results = RawProcessor.update_ratings(targets, on_progress)
+    except Exception as e:
+        print(f"XMP 更新失敗：{e}")
+        return 0, skipped, len(targets)
+    written = sum(1 for ok, _ in results if ok)
+    failed = len(targets) - written
 
     return written, skipped, failed
 
@@ -914,8 +906,16 @@ class PhotoManagerV2(QWidget):
         self.progress_label.setStyleSheet("color: #AFAFAF;")
         self._set_idle("尚未開始分析")
 
+        # 分析中才能按：手上這張做完就停，已分析的保存，其餘維持未分析
+        self.cancel_btn = QPushButton("取消分析")
+        self.cancel_btn.setEnabled(False)
+        self.cancel_btn.clicked.connect(self.cancel_analysis)
+        progress_row = QHBoxLayout()
+        progress_row.addWidget(self.progress_bar, 1)
+        progress_row.addWidget(self.cancel_btn)
+
         bottom = QVBoxLayout()
-        bottom.addWidget(self.progress_bar)
+        bottom.addLayout(progress_row)
         bottom.addWidget(self.progress_label)
 
         root = QVBoxLayout(self)
@@ -1080,6 +1080,7 @@ class PhotoManagerV2(QWidget):
         self._analysis_summary = None
         self._analysis_error = None
         self._analysis_ok_paths = []
+        self._close_after_cancel = False
         self._analysis_failures = []
 
         # 每次分析的完整結果（含相似照片分組要用的 1280 維特徵）存在 reports/batches/
@@ -1114,6 +1115,7 @@ class PhotoManagerV2(QWidget):
         worker.completed.connect(self._analysis_completed)
         worker.failed.connect(self._analysis_failed)
         worker.finished.connect(self._analysis_finished)
+        self.cancel_btn.setEnabled(True)
         worker.start()
 
     def _analysis_progress(self, done, total, record):
@@ -1141,18 +1143,32 @@ class PhotoManagerV2(QWidget):
         worker = self._analysis_thread
         total = len(self._analysis_paths)
         ok = len(self._analysis_ok_paths)
+        processed = ok + len(self._analysis_failures)
+        cancelled = worker.cancel_requested and processed < total
         xmp = None
         try:
             recompute_scores(self._analysis_weight, self._analysis_folder)
             self.refresh_list()
             # 星等要等整批分析完、重算綜合分之後才寫，才會用到目前權重下的分數
             xmp = self._auto_write_xmp(self._analysis_ok_paths)
+            xmp_note = ""
+            if xmp:
+                xmp_note = f"<br><br>XMP 星等：寫入 {xmp[0]} 張 RAW"
+                if xmp[2]:
+                    xmp_note += f"，失敗 {xmp[2]} 張（原因請看主控台）"
 
             if self._analysis_error:
                 self._set_progress(ok, total, "分析未完整完成")
                 self.result_label.setText(
                     f"<b>分析未完整完成</b><br>{html.escape(self._analysis_error)}<br><br>"
                     f"已完成 {ok} 張，結果都已存進資料庫。")
+            elif cancelled:
+                self._set_progress(processed, total, f"已取消：完成 {processed} / {total}")
+                text = (f"<b>已取消分析</b><br>已分析 {ok} 張，結果都已存進資料庫；"
+                        f"其餘 {total - processed} 張維持「尚未分析」，下次按「開始批次分析」會接著跑。")
+                if self._analysis_failures:
+                    text += f"<br>另有 {len(self._analysis_failures)} 張分析失敗，下次也會重試。"
+                self.result_label.setText(text + xmp_note)
             elif total == 1 and self._analysis_failures:
                 self._set_progress(0, 1, "分析失敗")
                 self.result_label.setText(
@@ -1169,10 +1185,7 @@ class PhotoManagerV2(QWidget):
                     text += "<br>" + "<br>".join(
                         f"・{html.escape(name)}：{html.escape(reason)}"
                         for name, reason in self._analysis_failures[:5])
-                if xmp:
-                    text += f"<br><br>XMP 星等：寫入 {xmp[0]} 張 RAW"
-                    if xmp[2]:
-                        text += f"，失敗 {xmp[2]} 張（原因請看主控台）"
+                text += xmp_note
                 text += ("<br><br>★ 目前權重下的最佳照片<br>△ 技術分偏低，建議檢視"
                          "<br>✓ 已分析<br>↻ 舊版模型的分數，需重新分析")
                 self.result_label.setText(text)
@@ -1186,16 +1199,36 @@ class PhotoManagerV2(QWidget):
                 self.progress_label.setText("目前處理：—")
             for control, enabled in self._analysis_controls:
                 control.setEnabled(enabled)
+            self.cancel_btn.setEnabled(False)
             self._analysis_thread = None
             worker.deleteLater()
+            if self._close_after_cancel:
+                QTimer.singleShot(0, self.close)
+
+    def cancel_analysis(self):
+        """手上這張推論完就停；不強制中斷正在跑的 GPU／RAW 解碼。"""
+        if self._analysis_thread is None:
+            return
+        self._analysis_thread.cancel()
+        self.cancel_btn.setEnabled(False)
+        self.progress_label.setText("正在取消，手上這張做完就停…")
 
     def closeEvent(self, event):
-        # 不強制中斷正在跑的 GPU／RAW 解碼；等分析完成再關
-        if self._analysis_thread is not None:
-            self.progress_label.setText("請等背景分析完成後再關閉視窗。")
-            event.ignore()
-        else:
+        if self._analysis_thread is None:
             event.accept()
+            return
+        # 分析中關視窗：問要不要取消；取消的話等手上這張做完再自動關閉
+        event.ignore()
+        answer = QMessageBox.question(
+            self, "分析還在進行",
+            "背景分析還在進行，要取消分析並關閉視窗嗎？\n已經分析完的照片會保留。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if answer == QMessageBox.StandardButton.Yes and self._analysis_thread is not None:
+            self._close_after_cancel = True
+            self.cancel_analysis()
+            self.progress_label.setText("正在取消，完成後會自動關閉視窗…")
 
     def auto_xmp_toggled(self, checked):
         if not checked:

@@ -43,13 +43,16 @@ def collect_photos(folder):
 
 
 def analyze_batch(paths, output_path, aesthetic_weight=0.6,
-                  on_progress=None):
+                  on_progress=None, should_stop=None):
     """
     解碼使用 4 個執行緒。
     推論只在呼叫本函式的執行緒依序執行。
 
     同一時間只能啟動一個批次；
     前端單張分析也不能同時呼叫模型。
+
+    should_stop：每處理完一張照片前呼叫一次，回傳 True 就停止（前台的「取消」按鈕）。
+    正在推論的那張會做完並寫入；還沒開始的不再處理，回傳的 cancelled 為 True。
     """
     weight = float(aesthetic_weight)
 
@@ -66,6 +69,7 @@ def analyze_batch(paths, output_path, aesthetic_weight=0.6,
     total = len(paths)
     success_count = 0
     failed_count = 0
+    cancelled = False
     path_iterator = iter(paths)
 
     # 使用 x 模式，避免不小心覆寫之前的結果。
@@ -91,6 +95,14 @@ def analyze_batch(paths, output_path, aesthetic_weight=0.6,
             completed = 0
 
             while pending:
+                if should_stop is not None and should_stop():
+                    cancelled = True
+                    # 已經排隊、還沒開始解碼的直接取消；正在解碼的幾張做完後丟棄
+                    for _, future in pending:
+                        future.cancel()
+                    pending.clear()
+                    break
+
                 path, future = pending.popleft()
                 image = None
 
@@ -170,5 +182,6 @@ def analyze_batch(paths, output_path, aesthetic_weight=0.6,
         "total": total,
         "success": success_count,
         "failed": failed_count,
+        "cancelled": cancelled,
         "output": str(output_path),
     }

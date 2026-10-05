@@ -166,6 +166,81 @@ class TestSafeUpdateXmp(unittest.TestCase):
                 self.assertEqual(self.rp.map_score_to_rating(score), stars)
 
 
+
+@requires_weights
+class TestUpdateRatings(unittest.TestCase):
+    """
+    批次寫星等（RawProcessor.update_ratings）。
+
+    逐張修改已有的 .xmp 時，每張都要啟動一次 ExifTool（約 0.4 秒，325 張將近 2 分鐘）。
+    批次版把同一個星等的照片交給同一次 ExifTool；結果必須和逐張一樣，而且不能因此弄壞任何檔案。
+    """
+
+    def setUp(self):
+        from raw_processor import RawProcessor
+        self.rp = RawProcessor
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _photo(self, name, sidecar=True):
+        photo = self.dir / name
+        photo.write_bytes(FAKE_RAW)
+        if sidecar:
+            photo.with_suffix('.xmp').write_text(LIGHTROOM_SIDECAR, encoding='utf-8')
+        return str(photo)
+
+    @requires_exiftool
+    def test_one_exiftool_call_per_rating_and_edits_kept(self):
+        items = [(self._photo('A1.ARW'), 70.0), (self._photo('A2.ARW'), 72.0),
+                 (self._photo('中文檔名.ARW'), 75.0),                  # 5 星
+                 (self._photo('B1.ARW'), 60.0), (self._photo('B2.ARW'), 58.0),   # 3 星
+                 (self._photo('NEW.ARW', sidecar=False), 50.0)]                # 新建，2 星
+        real_run = subprocess.run
+        calls = []
+
+        def counting_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch('raw_processor.subprocess.run', side_effect=counting_run):
+            results = self.rp.update_ratings(items)
+
+        self.assertEqual(results, [(True, 5), (True, 5), (True, 5), (True, 3), (True, 3), (True, 2)])
+        self.assertEqual(len(calls), 2, '兩個星等各一次，不可每張啟動一次 ExifTool')
+        for (path, _), (_, stars) in zip(items, results):
+            fields = xmp_fields(Path(path).with_suffix('.xmp'))
+            self.assertEqual(fields[XMP_RATING], str(stars), path)
+            if not path.endswith('NEW.ARW'):
+                self.assertEqual(fields[CRS_EXPOSURE], '+0.65', 'Lightroom 的調色不見了')
+                self.assertEqual(fields[XMP_LABEL], 'Red', 'Lightroom 的色標不見了')
+            self.assertEqual(Path(path).read_bytes(), FAKE_RAW, '原始照片被改到了')
+
+    def test_failed_group_falls_back_to_one_by_one(self):
+        items = [(self._photo('A.ARW'), 70.0), (self._photo('B.ARW'), 72.0)]
+        before = [Path(p).with_suffix('.xmp').read_bytes() for p, _ in items]
+        failed = subprocess.CompletedProcess([], returncode=1, stdout=b'', stderr=b'boom')
+        with mock.patch('raw_processor.shutil.which', return_value='exiftool'), \
+                mock.patch('raw_processor.subprocess.run', return_value=failed) as run, \
+                mock.patch('builtins.print'):
+            results = self.rp.update_ratings(items)
+        self.assertEqual(results, [(False, 5), (False, 5)])
+        self.assertEqual(run.call_count, 3, '整組一次，失敗後逐張各一次')
+        self.assertEqual([Path(p).with_suffix('.xmp').read_bytes() for p, _ in items], before)
+
+    def test_without_exiftool_only_new_sidecars_are_written(self):
+        items = [(self._photo('OLD.ARW'), 70.0), (self._photo('NEW.ARW', sidecar=False), 70.0),
+                 (self._photo('IMG.jpg', sidecar=False), 70.0)]
+        before = Path(items[0][0]).with_suffix('.xmp').read_bytes()
+        with mock.patch('raw_processor.shutil.which', return_value=None), mock.patch('builtins.print'):
+            results = self.rp.update_ratings(items)
+        self.assertEqual(results, [(False, 5), (True, 5), (False, 5)])
+        self.assertEqual(Path(items[0][0]).with_suffix('.xmp').read_bytes(), before)
+        self.assertFalse((self.dir / 'IMG.xmp').exists(), 'JPG 不寫 sidecar')
+
+
 @requires_weights
 class TestDecodeMatchesInference(unittest.TestCase):
     """顯示與寫星等用的影像必須和評分時完全相同（包含 JPG 依 EXIF 轉正）。"""

@@ -13,10 +13,15 @@
 檢查項目分成兩級：
     [必要] 缺了推論就完全跑不動  -> 記為 FAIL，腳本以離開代碼 1 結束
     [選用] 缺了只影響部分功能    -> 記為 WARN，不影響離開代碼
+
+換一台電腦時先跑這支：最後的總結會列出還缺什麼、怎麼補（權重、套件、ExifTool）。
 """
+import hashlib
 import importlib
 import os
 import platform
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -126,9 +131,10 @@ def check_rawpy():
                    if p.suffix.lower() in (".arw", ".dng", ".cr2", ".nef", ".raf")]
 
     if not samples:
-        record(WARN, "RAW 檔支援 (rawpy)",
-               f"rawpy {version} 可匯入，但 {photo_dir} 內沒有 RAW 檔可供實測",
-               "放一張 .ARW 或 .DNG 進去，這項才能真正驗證解碼是否正常")
+        # 新電腦上通常沒有這個資料夾，屬於正常情況，不記為警告
+        record(OK, "RAW 檔支援 (rawpy)",
+               f"rawpy {version} 可匯入（{photo_dir} 內沒有 RAW 檔，未實測解碼；"
+               f"放一張 .ARW 或 .DNG 進去就會實際解碼一次）")
         return
 
     sample = samples[0]
@@ -146,8 +152,8 @@ def check_rawpy():
 
 def check_pyqt():
     """
-    GUI 框架檢查。注意本專案的 PyQt6 前台由其他人負責，
-    缺少它不影響模型推論，因此只記為 WARN。
+    GUI 框架檢查。照片管理主程式 main_v2.py 需要它；
+    缺少它時模型推論與命令列工具（run_batch.py 等）照樣能用，因此只記為 WARN。
     """
     try:
         from PyQt6.QtCore import QT_VERSION_STR
@@ -155,7 +161,7 @@ def check_pyqt():
     except Exception as e:
         record(WARN, "GUI 框架 (PyQt6)",
                f"無法匯入 PyQt6：{type(e).__name__}: {e}",
-               "缺少它只影響桌面前台，模型推論不受影響。安裝：pip install PyQt6")
+               "沒有它就開不了照片管理主程式 main_v2.py（命令列工具不受影響）。安裝：pip install PyQt6")
         return
 
     try:
@@ -175,7 +181,15 @@ def check_pyqt():
 # 一個為了預防缺檔而存在的檢查，剛好對缺檔視而不見。
 # 不直接 import ai_inference 取值，是因為那會連帶載入模型；
 # 本腳本必須在套件或權重缺失時仍能跑完並產出完整報告。
-REQUIRED_WEIGHTS = (("nima_aes_dist.pth", "美感"), ("nima_tech_best.pth", "技術"))
+#
+# 第三欄是組上目前使用的權重的 SHA-256 前 8 碼（與 ai_inference.model_version() 記的相同）。
+# 權重從雲端下載，下載不完整或拿到舊版時檔名一樣、也可能載得起來，但分數會和大家不同，
+# 而且前台會把資料庫裡的分數全部當成舊版本。換了權重請一併更新這裡。
+REQUIRED_WEIGHTS = (("nima_aes_dist.pth", "美感", "71dbd9e1"),
+                    ("nima_tech_best.pth", "技術", "e39a98f4"))
+
+# 權重不放在 GitHub：repo 是公開的。由王凱立另外提供雲端下載連結（README「模型權重」一節）。
+WEIGHTS_HINT = "權重不在 GitHub 上，請向王凱立索取雲端下載連結"
 
 # 退回用的舊權重。缺了不影響評分，只是無法切回舊模型做對照。
 OPTIONAL_WEIGHTS = (("nima_best.pth", "美感（舊二元版，退回用）"),)
@@ -186,14 +200,21 @@ def check_weights():
     權重檔檢查。沒有權重，ai_inference 會直接拋 FileNotFoundError，
     整個評分功能等於不存在，所以列為必要項。
     """
-    for filename, label in REQUIRED_WEIGHTS:
+    for filename, label, expected in REQUIRED_WEIGHTS:
         path = BASE_DIR / filename
-        if path.exists():
-            size_mb = path.stat().st_size / (1024 * 1024)
-            record(OK, f"{label}模型權重", f"{filename} ({size_mb:.1f} MB)")
-        else:
+        if not path.exists():
             record(FAIL, f"{label}模型權重", f"找不到 {path}",
-                   f"沒有權重就無法評分。請確認 {filename} 位於 {BASE_DIR}")
+                   f"沒有權重就無法評分。{WEIGHTS_HINT}，下載後把 {filename} 放到 {BASE_DIR}"
+                   f"（和 main_v2.py 同一層，檔名不要改）")
+            continue
+        size_mb = path.stat().st_size / (1024 * 1024)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:8]
+        if digest == expected:
+            record(OK, f"{label}模型權重", f"{filename} ({size_mb:.1f} MB，指紋 {digest})")
+        else:
+            record(WARN, f"{label}模型權重",
+                   f"{filename} ({size_mb:.1f} MB) 的指紋是 {digest}，組上目前用的是 {expected}",
+                   "可能是下載不完整或拿到舊版：評分照樣能跑，但分數會和大家的不一樣。請重新下載")
 
     for filename, label in OPTIONAL_WEIGHTS:
         path = BASE_DIR / filename
@@ -203,6 +224,35 @@ def check_weights():
         else:
             record(WARN, f"{label}模型權重", f"找不到 {filename}",
                    "評分不受影響，但無法切回舊模型做對照實驗。")
+
+
+def check_exiftool():
+    """
+    ExifTool 不是 Python 套件，pip 裝不到，要另外安裝並加進 PATH。
+    沒有它時：修改已存在的 .xmp（保留 Lightroom 調色）會失敗、RAW 的拍攝資訊讀不到；
+    新建 .xmp 與評分本身不受影響，因此記為 WARN。
+    """
+    cmd = shutil.which("exiftool")
+    if cmd is None:
+        if sys.platform == "darwin":
+            hint = "Mac：brew install exiftool（或到 https://exiftool.org 下載 macOS 安裝檔）"
+        else:
+            hint = ("Windows：到 https://exiftool.org 下載 Windows 版，"
+                    "把 exiftool(-k).exe 改名為 exiftool.exe，連同 exiftool_files 資料夾放進 PATH 裡的資料夾；"
+                    "或用下載頁的 Windows 安裝程式（會自動加入 PATH）。裝完要重開命令列視窗")
+        record(WARN, "ExifTool（XMP 星等、拍攝資訊）", "找不到 exiftool 指令（不在 PATH 上）",
+               "缺少它時已存在的 .xmp 無法更新、RAW 讀不到拍攝資訊；評分不受影響。" + hint)
+        return
+    try:
+        result = subprocess.run([cmd, "-ver"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        version = result.stdout.decode("utf-8", "replace").strip()
+        if result.returncode != 0 or not version:
+            raise RuntimeError(result.stderr.decode("utf-8", "replace").strip() or f"離開代碼 {result.returncode}")
+    except Exception as e:
+        record(WARN, "ExifTool（XMP 星等、拍攝資訊）", f"找到 {cmd}，但執行失敗：{type(e).__name__}: {e}",
+               "Windows 版要連同 exiftool_files 資料夾一起放，只複製 exe 會無法執行")
+        return
+    record(OK, "ExifTool（XMP 星等、拍攝資訊）", f"版本 {version}（{cmd}）")
 
 
 def verify():
@@ -230,9 +280,10 @@ def verify():
     check_module("scipy", "SciPy", required=False)
     check_module("matplotlib", "matplotlib（報表圖表）", required=False)
 
-    print("\n--- 選用功能 ---")
-    check_rawpy()
+    print("\n--- 照片管理主程式 main_v2.py ---")
     check_pyqt()
+    check_rawpy()
+    check_exiftool()
 
     # ── 總結 ──────────────────────────────────────────
     fails = [r for r in results if r[0] == FAIL]
@@ -250,14 +301,19 @@ def verify():
         flat = " ".join(text.split())
         return flat if len(flat) <= limit else flat[:limit] + "..."
 
+    # 有補救方法的就印補救方法：換電腦的人要知道的是下一步做什麼
+    # 補救方法是自己寫的、一行內，整句印出來（截斷的話剛好截掉路徑或安裝步驟）
+    def _summary(detail, hint):
+        return " ".join(hint.split()) if hint else _oneline(detail)
+
     if fails:
         print("\n必須修正（否則無法評分）：")
-        for _, title, detail, _ in fails:
-            print(f"  - {title}：{_oneline(detail)}")
+        for _, title, detail, hint in fails:
+            print(f"  - {title}：{_summary(detail, hint)}")
     if warns:
         print("\n部分功能受限：")
-        for _, title, detail, _ in warns:
-            print(f"  - {title}：{_oneline(detail)}")
+        for _, title, detail, hint in warns:
+            print(f"  - {title}：{_summary(detail, hint)}")
     if not fails and not warns:
         print("\n所有項目正常。")
 

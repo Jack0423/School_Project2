@@ -70,8 +70,10 @@ with tempfile.TemporaryDirectory() as tmp:
         assert window._analysis_thread is first
         assert not window.weight_slider.isEnabled()
         close = QCloseEvent()
-        window.closeEvent(close)
+        with patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.No):
+            window.closeEvent(close)
         assert not close.isAccepted()
+        assert window._analysis_thread is first, 'Answering No must keep the analysis running'
         with patch.object(gui.QMessageBox, 'question', side_effect=AssertionError('delete invoked')):
             window.delete_selected()
         wait_done()
@@ -100,6 +102,31 @@ with tempfile.TemporaryDirectory() as tmp:
             wait_done()
         assert '資料庫' in window._analysis_error
         assert window.weight_slider.isEnabled()
+        many = [str(Path(tmp)/f'many{i}.jpg') for i in range(20)]
+        conn = gui.get_conn()
+        for path in many:
+            conn.execute('INSERT INTO photos_v2 (file_path,file_name) VALUES (?,?)',(path,Path(path).name))
+        conn.commit()
+        conn.close()
+        window._start_analysis(many)
+        assert window.cancel_btn.isEnabled()
+        window.cancel_analysis()
+        wait_done()
+        done = sum(gui.get_photo(p)[13] == 1 for p in many)
+        assert done < len(many), 'Cancel did not stop the batch'
+        assert '已取消' in window.result_label.text()
+        assert window.analyze_all_btn.isEnabled() and not window.cancel_btn.isEnabled()
+        remaining = [p for p in many if gui.get_photo(p)[13] == 0]
+        window._start_analysis(remaining)
+        with patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), \
+                patch.object(window, 'close') as close_window:
+            close = QCloseEvent()
+            window.closeEvent(close)
+            assert not close.isAccepted(), 'Must wait for the current photo before closing'
+            wait_done()
+            for _ in range(5):
+                app.processEvents()
+            assert close_window.called, 'Window should close after the cancel finishes'
     timer.stop()
     window.close()
-print('PASS: real Qt background execution, responsive timer, serial inference, GUI-thread DB, guards, cleanup and failures')
+print('PASS: real Qt background execution, responsive timer, serial inference, GUI-thread DB, guards, cleanup, failures and cancel')
