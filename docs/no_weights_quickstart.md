@@ -5,7 +5,7 @@
 在專案資料夾執行：
 
 ```bash
-python check_without_weights.py
+python tools/check_without_weights.py
 ```
 
 每次會建立新的 `reports/no_weights/時間/`，內含 `tests.log` 與 `summary.json`。

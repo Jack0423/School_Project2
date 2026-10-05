@@ -1,9 +1,9 @@
 """
 命令列評分工具 —— 把照片或整個資料夾丟進來，直接印出評分結果。
 
-    python score.py 照片.jpg
-    python score.py data/my_photos              # 整個資料夾
-    python score.py a.jpg b.ARW --json out.json # 存成 JSON
+    python tools/score.py 照片.jpg
+    python tools/score.py data/my_photos              # 整個資料夾
+    python tools/score.py a.jpg b.ARW --json out.json # 存成 JSON
 
 存在的理由：ai_inference.evaluate_photo() 是給前台程式呼叫的函式介面，
 要手動測一張照片得寫 python -c 一行式，很不方便。這支腳本只做「輸入輸出」，
@@ -13,10 +13,15 @@
 與 ai_inference.py、check_env.py 的既有慣例一致，
 理由同樣是 Windows 繁中主控台預設 cp950 編碼會讓 emoji 拋 UnicodeEncodeError。
 """
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
 import os
-import sys
 
 import ai_inference
 from ai_inference import IMAGE_EXTENSIONS, UNSUPPORTED_PHOTO_EXTENSIONS, evaluate_photo

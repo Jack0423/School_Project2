@@ -36,7 +36,7 @@ python main_v2.py
 ## 2. 循序與平行的分數、耗時比較
 
 ```bash
-python compare_batch.py "照片資料夾" --output reports/batch_compare_01 --repeats 5
+python tools/compare_batch.py "照片資料夾" --output reports/batch_compare_01 --repeats 5
 ```
 
 輸出目錄必須是新的，以免混入先前結果。會產生：
@@ -56,8 +56,8 @@ python compare_batch.py "照片資料夾" --output reports/batch_compare_01 --re
 先對固定的驗證資料夾完整分析，輸出名稱不要重複：
 
 ```bash
-python run_batch.py "照片資料夾" --output batch_validation_01.jsonl
-python validate_grouping.py template batch_validation_01.jsonl --output human_labels_01.csv
+python tools/run_batch.py "照片資料夾" --output batch_validation_01.jsonl
+python tools/validate_grouping.py template batch_validation_01.jsonl --output human_labels_01.csv
 ```
 
 打開 CSV，人工填完每張照片的 `group_id`：同一組填同一個值，獨立照片各用不同值。請依照片內容及專題定義獨立判斷，不要直接抄程式的預測。所有照片都必須標註，空白、重複路徑、標註與批次清單不一致都會被拒絕；含分析失敗照片的批次也必須先處理，避免靜默排除難例。
@@ -66,7 +66,7 @@ python validate_grouping.py template batch_validation_01.jsonl --output human_la
 
 ```bash
 exiftool -r -json -SubSecDateTimeOriginal -DateTimeOriginal -Make -Model -SerialNumber -InternalSerialNumber "照片資料夾" > photo_metadata_01.json
-python validate_grouping.py evaluate batch_validation_01.jsonl human_labels_01.csv --metadata photo_metadata_01.json --output grouping_validation_01.json
+python tools/validate_grouping.py evaluate batch_validation_01.jsonl human_labels_01.csv --metadata photo_metadata_01.json --output grouping_validation_01.json
 ```
 
 預設是連拍分組，沿用相似度 0.85、整組跨度 5 秒及 `camera-match=model`。要只測視覺相似分組，明確指定 `--mode similarity`，不需 metadata。

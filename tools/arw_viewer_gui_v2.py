@@ -1,5 +1,10 @@
-import os
 import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import os
 
 import numpy as np
 
@@ -126,7 +131,7 @@ class ARWViewerProV2(ARWViewerPro):
 
 def choose_file():
     # 可以：
-    # python arw_viewer_gui_v2.py /完整路徑/photo.DNG
+    # python tools/arw_viewer_gui_v2.py /完整路徑/photo.DNG
     if len(sys.argv) >= 2:
         return os.path.abspath(os.path.expanduser(sys.argv[1]))
 

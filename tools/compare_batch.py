@@ -3,13 +3,18 @@
 Both use the same model, images, weights, feature extraction and JSONL writes.
 Model inference remains serial in BOTH modes. No synthetic scores are generated.
 """
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
 import math
 import platform
 import statistics
 import time
-from pathlib import Path
 
 SCORE_KEYS = ('aesthetic_score', 'technical_score', 'overall_score')
 

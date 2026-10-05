@@ -11,7 +11,7 @@ import unittest
 import numpy as np
 
 from common import metrics as M
-from tests._util import PROJECT_ROOT
+from tests._util import PROJECT_ROOT, script_path
 
 
 class TestDecisionRules(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestDecisionRules(unittest.TestCase):
         就會和前台實際的判定差幾張，而且不會有任何錯誤訊息。直接比對兩邊原始碼。
         """
         ai_src = (PROJECT_ROOT / 'ai_inference.py').read_text(encoding='utf-8')
-        report_src = (PROJECT_ROOT / 'model_report.py').read_text(encoding='utf-8')
+        report_src = script_path('model_report.py').read_text(encoding='utf-8')
         self.assertRegex(ai_src, r'score_tech\s*<\s*TECH_ISSUE_THRESHOLD',
                          'ai_inference 的警告判定不再是「技術分 < 門檻」，請同步修改 model_report.py')
         self.assertRegex(ai_src, r'score_aes\s*>\s*AESTHETIC_EXCELLENT_THRESHOLD',

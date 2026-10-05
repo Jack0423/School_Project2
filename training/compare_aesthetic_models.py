@@ -21,13 +21,17 @@ PLCC 一併列出作為參考，但跨尺度比較時不應作為主要依據。
 
 用法
 ----
-    python compare_aesthetic_models.py
-    python compare_aesthetic_models.py --val-csv data/ava_val.csv
+    python training/compare_aesthetic_models.py
+    python training/compare_aesthetic_models.py --val-csv data/ava_val.csv
 """
-import argparse
-import os
 import sys
 from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import argparse
+import os
 
 import numpy as np
 import pandas as pd
@@ -41,7 +45,7 @@ SCORE_LEVELS = np.arange(1, 11)
 
 # 相對路徑一律以專案資料夾為基準，不依賴「從哪裡執行」。
 # 原本權重檔寫成相對路徑，從別的資料夾執行時三個模型都會顯示「權重檔不存在，略過」。
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]   # 專案根目錄（這支在子資料夾裡）
 
 
 def in_project(path):
@@ -85,7 +89,7 @@ def main():
     if 'mean_score' not in df.columns:
         print(f'[FAIL] {args.val_csv} 沒有 mean_score 欄位。')
         print('   需要含 AVA 群眾平均評分的驗證集才能做公平比較，')
-        print('   請先執行 python build_ava_labels.py 產生 data/ava_val.csv。')
+        print('   請先執行 python training/build_ava_labels.py 產生 data/ava_val.csv。')
         return 1
 
     truth = df['mean_score'].values

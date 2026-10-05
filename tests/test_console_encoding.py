@@ -25,7 +25,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests._util import PROJECT_ROOT
+from tests._util import PROJECT_ROOT, script_path
 
 # arw_viewer_gui.py 是同組成員負責的 PyQt6 前台，不在本次修正範圍內。
 # 它的 emoji 絕大多數是放進 Qt 標籤（不經過主控台編碼，完全沒問題），
@@ -104,7 +104,7 @@ class TestGuardMessagesSurviveCp950(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sandbox = Path(tmp)
             (sandbox / 'data').mkdir()
-            script = PROJECT_ROOT / 'split_data.py'
+            script = script_path('split_data.py')
             result = self._run_under_cp950(script, sandbox)
 
         self.assertNotIn('UnicodeEncodeError', result.stderr,
@@ -121,7 +121,7 @@ class TestGuardMessagesSurviveCp950(unittest.TestCase):
                      'run_batch.py', 'photo_grouping.py', 'run_bursts.py',
                      'pick_best.py', 'split_koniq.py', 'eval_models.py'):
             with self.subTest(script=name):
-                result = self._run_under_cp950(PROJECT_ROOT / name, PROJECT_ROOT,
+                result = self._run_under_cp950(script_path(name), PROJECT_ROOT,
                                                args=('--help',))
                 self.assertNotIn('UnicodeEncodeError', result.stderr,
                                  f'{name} --help 在 cp950 下崩潰了')

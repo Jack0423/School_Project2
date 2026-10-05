@@ -28,7 +28,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', help='New report directory; defaults to timestamped reports/no_weights directory')
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[1]   # 專案根目錄（這支在 tools/ 裡）
     os.chdir(root)
     sys.path.insert(0, str(root))
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')

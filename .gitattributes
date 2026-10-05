@@ -15,3 +15,7 @@
 *.pptx binary
 *.docx binary
 *.pdf binary
+
+# 雙擊啟動檔的換行必須固定：Mac 的 .command 若是 CRLF，bash 會出現 command not found
+*.command text eol=lf
+*.bat text eol=crlf

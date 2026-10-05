@@ -17,14 +17,19 @@
 
 用法
 ----
-    python eval_models.py                    # 用現有的驗證集
-    python eval_models.py --save metrics.json
-    python eval_models.py --aes-csv data/ava_val.csv   # 重訓後改用新驗證集
+    python training/eval_models.py                    # 用現有的驗證集
+    python training/eval_models.py --save metrics.json
+    python training/eval_models.py --aes-csv data/ava_val.csv   # 重訓後改用新驗證集
 """
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
 import os
-import sys
 import time
 
 import numpy as np

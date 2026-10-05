@@ -1,7 +1,7 @@
 """
 把 KonIQ-10k 的 MOS 縮到 0~1，再切成 train / val 兩份（80 / 20）。
 
-    python split_koniq.py
+    python training/split_koniq.py
 
 輸出 data/train_tech.csv、data/val_tech.csv，給 train_tech.py 使用。
 同一個來源、同一個亂數種子（42），每次切出來的結果都完全相同。
@@ -15,7 +15,7 @@
 改用官方切分就要重新訓練。
 
 2026-09-25 改寫成 main() + argparse：原本整支是模組層級的程式碼，
-連 `python split_koniq.py --help` 都會直接開始切分、寫檔。輸出內容與改寫前逐位元組相同。
+連 `python training/split_koniq.py --help` 都會直接開始切分、寫檔。輸出內容與改寫前逐位元組相同。
 """
 import argparse
 import os

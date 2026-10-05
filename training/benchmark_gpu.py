@@ -1,9 +1,9 @@
 """
 GPU / CPU 效能量測 —— 照課程投影片 4-3「測速三守則」寫成、可以重跑的量測。
 
-    python benchmark_gpu.py                 # 全部項目（約 3~5 分鐘）
-    python benchmark_gpu.py --quick         # 快速版（約 1 分鐘），只用來確認流程
-    python benchmark_gpu.py --only train,loader
+    python training/benchmark_gpu.py                 # 全部項目（約 3~5 分鐘）
+    python training/benchmark_gpu.py --quick         # 快速版（約 1 分鐘），只用來確認流程
+    python training/benchmark_gpu.py --only train,loader
 
 為什麼要有這支腳本
 ------------------
@@ -40,19 +40,23 @@ README 的速度數字（推論 22.7 ms、GPU 訓練快 11.7 倍）是當時臨�
   reports/benchmark/<時間>/summary.md       表格版摘要
   reports/benchmark/<時間>/*.png            圖表（需要 matplotlib）
 """
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
 import os
 import platform
 import statistics
-import sys
 import time
 from datetime import datetime
-from pathlib import Path
 
 import torch
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]   # 專案根目錄（這支在子資料夾裡）
 SECTIONS = ('env', 'matmul', 'infer', 'pipeline', 'train', 'loader')
 MB = 1024 ** 2
 

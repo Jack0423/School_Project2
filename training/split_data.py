@@ -1,8 +1,8 @@
 """
 把美感標籤的完整檔切成 train / val 兩份（80 / 20）。
 
-    python split_data.py
-    python split_data.py --source data/train_full.csv --force
+    python training/split_data.py
+    python training/split_data.py --source data/train_full.csv --force
 
 讀取源與輸出目標分離（2026-09-14 修正）
 ----------------------------------------

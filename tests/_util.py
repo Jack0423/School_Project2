@@ -19,6 +19,14 @@ PHOTO_DIR = PROJECT_ROOT / 'data' / 'my_photos'
 DATASET_DIR = PROJECT_ROOT / 'data' / 'dataset'
 
 
+def script_path(name):
+    """腳本的完整路徑：主程式用的模組在專案根目錄，命令列工具在 tools/，訓練與評估在 training/。"""
+    for folder in (PROJECT_ROOT, PROJECT_ROOT / "tools", PROJECT_ROOT / "training"):
+        if (folder / name).exists():
+            return folder / name
+    raise FileNotFoundError(f"找不到 {name}")
+
+
 def required_weight_files():
     """
     回傳 ai_inference.py 目前實際使用的權重檔名，例如

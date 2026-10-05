@@ -183,13 +183,13 @@ def check_pyqt():
 # 本腳本必須在套件或權重缺失時仍能跑完並產出完整報告。
 #
 # 第三欄是組上目前使用的權重的 SHA-256 前 8 碼（與 ai_inference.model_version() 記的相同）。
-# 權重從雲端下載，下載不完整或拿到舊版時檔名一樣、也可能載得起來，但分數會和大家不同，
+# 下載不完整或拿到舊版時檔名一樣、也可能載得起來，但分數會和大家不同，
 # 而且前台會把資料庫裡的分數全部當成舊版本。換了權重請一併更新這裡。
 REQUIRED_WEIGHTS = (("nima_aes_dist.pth", "美感", "71dbd9e1"),
                     ("nima_tech_best.pth", "技術", "e39a98f4"))
 
-# 權重不放在 GitHub：repo 是公開的。由王凱立另外提供雲端下載連結（README「模型權重」一節）。
-WEIGHTS_HINT = "權重不在 GitHub 上，請向王凱立索取雲端下載連結"
+# 兩個權重放在 repo 裡（README「模型權重」一節），下載整個專案就有。
+WEIGHTS_HINT = "權重包含在 GitHub 的專案裡，請重新下載整個專案"
 
 # 退回用的舊權重。缺了不影響評分，只是無法切回舊模型做對照。
 OPTIONAL_WEIGHTS = (("nima_best.pth", "美感（舊二元版，退回用）"),)
@@ -204,8 +204,7 @@ def check_weights():
         path = BASE_DIR / filename
         if not path.exists():
             record(FAIL, f"{label}模型權重", f"找不到 {path}",
-                   f"沒有權重就無法評分。{WEIGHTS_HINT}，下載後把 {filename} 放到 {BASE_DIR}"
-                   f"（和 main_v2.py 同一層，檔名不要改）")
+                   f"沒有權重就無法評分。{WEIGHTS_HINT}（{filename} 應該在 {BASE_DIR}）")
             continue
         size_mb = path.stat().st_size / (1024 * 1024)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()[:8]

@@ -17,7 +17,7 @@ import photo_grouping
 from burst_metadata import build_burst_check, camera_identity, parse_capture_time
 from photo_grouping import group_photos
 from pick_best import rank_photos
-from tests._util import PROJECT_ROOT, requires_weights
+from tests._util import PROJECT_ROOT, requires_weights, script_path
 
 
 def record(path, score, feature, weight=0.6, ok=True):
@@ -282,7 +282,7 @@ class TestPickBest(unittest.TestCase):
 
 def _run_script(name, *args, cwd=None):
     env = dict(os.environ, PYTHONIOENCODING='utf-8')
-    return subprocess.run([sys.executable, str(PROJECT_ROOT / name), *args],
+    return subprocess.run([sys.executable, str(script_path(name)), *args],
                           cwd=str(cwd or PROJECT_ROOT), env=env,
                           capture_output=True, text=True, encoding='utf-8')
 

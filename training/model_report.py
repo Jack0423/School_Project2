@@ -1,8 +1,8 @@
 """
 模型成效報表：把兩個模型在驗證集上的表現整理成數據、表格與圖表。
 
-    python model_report.py              # 完整報表（約 1~2 分鐘）
-    python model_report.py --quick      # 每個驗證集只取前 300 張，確認流程用
+    python training/model_report.py              # 完整報表（約 1~2 分鐘）
+    python training/model_report.py --quick      # 每個驗證集只取前 300 張，確認流程用
 
 會產生什麼
 ----------
@@ -44,17 +44,21 @@ TECH_ISSUE_THRESHOLD、AESTHETIC_EXCELLENT_THRESHOLD），不另外寫一份—�
     predictions_*.csv          每張照片的真實分數與預測分數
     *.png                      圖表（需要 matplotlib）
 """
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
 import math
-import sys
 import time
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]   # 專案根目錄（這支在子資料夾裡）
 
 QUICK_LIMIT = 300
 MIN_POSITIVES_FOR_PRECISION = 20

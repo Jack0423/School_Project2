@@ -46,7 +46,7 @@ non_best_paths(result)      # 每組除了建議保留以外的照片，給「�
 3. 「選取每組非最佳」：用 `non_best_paths(result)` 在清單裡選取，再交給現有的刪除功能
    （`delete_selected`，移到資源回收筒、RAW 的 `.xmp` 一起移）。不要做一鍵直接刪除。
 4. 提示：`not_ready` 有照片時說明要先批次分析；連拍模式的 `no_capture_time`、`exiftool_missing` 也要說明原因。
-5. 驗證：用「連拍／幾乎一樣」的定義重新標註一份，用你的 `validate_grouping.py` 算 precision／recall／F1。
+5. 驗證：用「連拍／幾乎一樣」的定義重新標註一份，用你的 `tools/validate_grouping.py` 算 precision／recall／F1。
    前台分析的結果檔在 `reports/batches/`（最新的那一份），連拍模式另外需要 ExifTool 匯出的 metadata（見 README）。
    前台與命令列分出的組相同，所以用命令列驗證就等於驗證前台。
 6. 測試：至少測「選取每組非最佳」只會選到每組非最佳的照片、刪除之後重新分組的結果正確。

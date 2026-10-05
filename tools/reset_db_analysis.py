@@ -41,10 +41,10 @@
 
 用法
 ----
-    python reset_db_analysis.py photos.db                  # 試算，不寫入
-    python reset_db_analysis.py photos.db --apply          # 實際執行（會先備份）
-    python reset_db_analysis.py photos.db --table photos
-    python reset_db_analysis.py photos.db --columns aesthetic_score,technical_score --apply
+    python tools/reset_db_analysis.py photos.db                  # 試算，不寫入
+    python tools/reset_db_analysis.py photos.db --apply          # 實際執行（會先備份）
+    python tools/reset_db_analysis.py photos.db --table photos
+    python tools/reset_db_analysis.py photos.db --columns aesthetic_score,technical_score --apply
 
 長期建議
 --------

@@ -35,7 +35,7 @@
 
 | 項目 | 數字 |
 |---|---|
-| 單元測試 | 253 項，全數通過（期間由 109 項增加而來） |
+| 單元測試 | 263 項，全數通過（期間由 109 項增加而來） |
 | 美感模型 | SRCC 0.7925 / PLCC 0.8872（AVA 驗證集 1,400 張） |
 | 技術模型 | SRCC 0.7951 / PLCC 0.8314（KonIQ 驗證集 2,015 張） |
 | 半尺寸解碼 | 整條管線快 4.3 倍，325 張（15 GB）從 2 分 03 秒降為 26 ～ 30 秒 |
@@ -48,14 +48,14 @@
 
 ## 二、模型指標（2026-09-19 重新量測）
 
-`python eval_models.py`
+`python training/eval_models.py`
 
 | 模型 | 驗證集 | PLCC（−1～1） | SRCC（−1～1） |
 |---|---|---|---|
 | 美感（`nima_aes_dist.pth`） | AVA 1,400 張 | 0.8872 | 0.7925 |
 | 技術（`nima_tech_best.pth`） | KonIQ 2,015 張 | 0.8314 | 0.7951 |
 
-`python compare_aesthetic_models.py`：同一組 1,400 張、統一以 AVA 群眾平均分（1～10 分）為對照答案。
+`python training/compare_aesthetic_models.py`：同一組 1,400 張、統一以 AVA 群眾平均分（1～10 分）為對照答案。
 
 | 美感模型版本 | 訓練資料 | SRCC | PLCC | 模型原始輸出範圍 |
 |---|---|---|---|---|
@@ -99,7 +99,7 @@
 
 ### 3.2 整個資料夾掃描
 
-`python run_batch.py F:\testphoto`，325 張 Sony ARW、共 15 GB：
+`python tools/run_batch.py F:\testphoto`，325 張 Sony ARW、共 15 GB：
 
 - 325/325 張成功，耗時 2 分 03 秒（平均 378 ms／張，4 條執行緒解碼、單一執行緒推論）
 - 改用半尺寸後約 26 ～ 30 秒
@@ -172,6 +172,8 @@ ExifTool 讀 325 張的拍攝時間一次約 8 秒（`-fast2` 較快但會讀不
 | 10-05 | 234 | 併入宋宇宸的背景分析、效能比較與分組驗證工具 |
 | 10-05 | 239 | 取消分析、XMP 星等批次寫入 |
 | 10-05 | 253 | 分組底層：特徵與拍攝時間存進資料庫、`group_folder` |
+| 10-05 | 255 | XMP 失敗原因顯示在畫面上 |
+| 10-05 | 263 | 一鍵啟動（start.py）、權重放進 repo、腳本整理到 tools／training |
 
 ---
 
@@ -495,11 +497,11 @@ RAW 在 09-23 改為預設半尺寸解碼（3.1 節），而上面的校準全�
 ## 九、重現方式
 
 ```bash
-python -m unittest discover -s tests -t .          # 253 項測試
-python eval_models.py                              # 模型指標
-python compare_aesthetic_models.py                 # 美感模型版本比較
-python run_batch.py <資料夾> --output batch.jsonl   # 批次分析
-python run_bursts.py batch.jsonl photo_metadata.json --output bursts.json
+python -m unittest discover -s tests -t .          # 263 項測試
+python training/eval_models.py                              # 模型指標
+python training/compare_aesthetic_models.py                 # 美感模型版本比較
+python tools/run_batch.py <資料夾> --output batch.jsonl   # 批次分析
+python tools/run_bursts.py batch.jsonl photo_metadata.json --output bursts.json
 ```
 
 效能量測與模型成效報表另見 `benchmark_gpu.py` 與 `model_report.py`，

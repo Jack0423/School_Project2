@@ -1,6 +1,11 @@
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import os
-import sys
 
 import pandas as pd
 import torch
@@ -62,7 +67,7 @@ def parse_args():
     超參數與檔案路徑改為命令列參數，與 train_nima.py 保持一致。
 
     原本全部寫死在 main() 裡，其中 SAVE_PATH 直接指向正在服役的
-    nima_tech_best.pth——任何人只要執行一次 `python train_tech.py`
+    nima_tech_best.pth——任何人只要執行一次 `python training/train_tech.py`
     （即使只是想看看訓練長什麼樣子），第一個有改善的 epoch 就會把現役權重
     覆蓋掉，而且蓋上去的是只訓練了 1 個 epoch 的模型。
     分數看起來仍然「正常」，不會有任何錯誤訊息。

@@ -1,6 +1,11 @@
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
-from pathlib import Path
 
 from burst_metadata import (CAMERA_MATCH_CHOICES, DEFAULT_MAX_SECONDS,
                             build_burst_check, paths_without_metadata)

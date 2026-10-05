@@ -22,8 +22,8 @@
 | 美感（`nima_aes_dist.pth`，評分分佈版） | 0.8872 | 0.7925 | AVA 驗證集 1,400 張，對照答案為群眾平均分 |
 | 技術（`nima_tech_best.pth`） | 0.8314 | 0.7951 | KonIQ 驗證集 2,015 張 |
 
-隨時可用 `python eval_models.py` 重現。新舊美感模型（二元標籤 vs 評分分佈）的比較
-請用 `compare_aesthetic_models.py`，它統一以 AVA 群眾平均分為對照答案。
+隨時可用 `python training/eval_models.py` 重現。新舊美感模型（二元標籤 vs 評分分佈）的比較
+請用 `training/compare_aesthetic_models.py`，它統一以 AVA 群眾平均分為對照答案。
 
 兩點限制：挑選最佳 epoch 與量測上面的數字用的是同一份驗證集，沒有另外保留測試集；
 KonIQ 的驗證集是自己隨機切的 20%，**不是**官方的 test 切分（剛好也是 2,015 張），
@@ -31,17 +31,18 @@ KonIQ 的驗證集是自己隨機切的 20%，**不是**官方的 test 切分（
 
 ---
 
-## 安裝（換一台電腦也照這個做）
+## 安裝與啟動（換一台電腦也照這個做）
 
-需要 Python 3.10 以上（開發環境為 3.10.11 / Windows 11）。Mac 內建的 `python3` 可能是 3.9，請另外安裝；
-Mac 上以下指令的 `python`、`pip` 請改成 `python3`、`pip3`。
+需要 Python 3.10 以上（開發環境為 3.10.11 / Windows 11）。Mac 內建的 `python3` 可能是 3.9，請到 python.org 另外安裝。
 
-1. 下載程式：`git clone https://github.com/Jack0423/School_Project2.git`，或在 GitHub 頁面下載 ZIP。
-2. 安裝套件（依電腦選一種，見下面）。
-3. 放模型權重：不在 GitHub 上，見「[需要另外準備的檔案](#需要另外準備的檔案)」。
-4. 安裝 ExifTool（建議）：同一節。
-5. `python check_env.py`：逐項列出還缺什麼、怎麼補，沒有 `[FAIL]` 就能評分。
-6. `python main_v2.py` 開啟照片管理主程式。
+1. 下載程式：`git clone https://github.com/Jack0423/School_Project2.git`，或在 GitHub 頁面下載 ZIP。模型權重已經包含在裡面。
+2. 啟動：Windows 雙擊 `start_windows.bat`，Mac 雙擊 `start_mac.command`（或在專案資料夾執行 `python start.py`）。
+   - 第一次會列出缺少的套件，按 y 自動安裝：有 NVIDIA 顯卡裝 GPU 版 PyTorch（約 3 GB），其他電腦（包括 Mac）裝 CPU 版。
+   - 沒有 ExifTool 只會提醒，不影響評分（安裝見下方「ExifTool」；Mac 有 Homebrew 時可以直接按 y 安裝）。
+   - 都齊了就開啟照片管理主程式，之後每次雙擊都是直接開啟。
+3. 有問題時執行 `python check_env.py`：逐項列出缺什麼、怎麼補（也檢查 GPU 與訓練用的套件）。
+
+**手動安裝**（不用 `start.py` 時；Mac 上的 `python`、`pip` 請改成 `python3`、`pip3`）
 
 **Windows＋NVIDIA 顯卡（開發環境）**：
 
@@ -70,27 +71,23 @@ CPU 單張約 50 ms，一般使用足夠。Intel 晶片的 Mac 沒有這一版 P
 
 ---
 
-## 需要另外準備的檔案
+## 模型權重與需要另外準備的東西
 
-以下**不在版本庫內**（見 `.gitignore`），需自行取得：
+### 1. 模型權重（已包含在 repo）
 
-### 1. 模型權重（不在 GitHub 上）
-
-這個 repo 是公開的，權重不放上來。**請向王凱立索取雲端下載連結**；連結不要貼到 repo、issue 或其他公開的地方。
-
-下載後放在專案根目錄（和 `main_v2.py` 同一層），檔名不要改。使用系統只需要這兩個（各約 9 MB）：
+專案根目錄的兩個檔就是系統用的權重（各約 9 MB），下載專案就有，不需要另外準備：
 
 - `nima_aes_dist.pth` — 美感（評分分佈版，目前採用）
 - `nima_tech_best.pth` — 技術
 
-另有兩個歷史權重只供對照實驗：`nima_aes_binary.pth`（舊二元美感）、`nima_best.pth`；沒有也不影響評分，`check_env.py` 會列為警告，可以不理。
+權重以 AVA 與 KonIQ-10k 資料集訓練，**僅供學術用途**。另有兩個歷史權重只供對照實驗（`nima_aes_binary.pth`、`nima_best.pth`），
+沒有放進 repo；沒有也不影響評分，`check_env.py` 會列為警告，可以不理。
 
-放好後執行 `python check_env.py`。它會核對兩個權重的 SHA-256 前 8 碼（美感 `71dbd9e1`、技術 `e39a98f4`，
-與前台記的模型版本相同）。下載不完整或拿到舊版時，檔名一樣、也可能載得起來，但分數會和大家的不一樣，所以會另外提醒。
+`check_env.py` 與 `start.py` 會核對兩個權重的 SHA-256 前 8 碼（美感 `71dbd9e1`、技術 `e39a98f4`，與前台記的模型版本相同）：
+下載不完整或拿到舊版時，檔名一樣、也可能載得起來，但分數會和大家的不一樣，所以會另外提醒。重新訓練並換掉權重時，要一併更新 `check_env.py` 裡的指紋。
 
 **權重缺席時系統會明確失敗，絕不產生任何分數**——寧可關閉評分功能，
 也不要顯示隨機權重算出的假數字（`tests/test_startup_guards.py` 守住這條）。
-還沒拿到權重時，可以先用 `python check_without_weights.py` 跑不需要權重的測試（見 [docs/no_weights_quickstart.md](docs/no_weights_quickstart.md)）。
 
 ### 2. ExifTool（建議安裝）
 
@@ -188,7 +185,7 @@ result = evaluate_photo("path/to/photo.jpg")
 先批次評分，再選一種方式挑出「同一組裡要留哪張」：
 
 ```bash
-python run_batch.py <照片資料夾> --weight 0.8 --output batch_01.jsonl
+python tools/run_batch.py <照片資料夾> --weight 0.8 --output batch_01.jsonl
 ```
 
 `run_batch.py` 以 4 條執行緒解碼、單一執行緒推論（模型不可多執行緒呼叫），
@@ -203,8 +200,8 @@ python run_batch.py <照片資料夾> --weight 0.8 --output batch_01.jsonl
 
 ```bash
 python photo_grouping.py batch_01.jsonl --output photo_groups_01.json
-python run_bursts.py batch_01.jsonl photo_metadata.json --output burst_groups_01.json
-python pick_best.py batch_01.jsonl --output best_pick.json
+python tools/run_bursts.py batch_01.jsonl photo_metadata.json --output burst_groups_01.json
+python tools/pick_best.py batch_01.jsonl --output best_pick.json
 ```
 
 - **`photo_grouping.py`**：特徵正規化後以餘弦相似度分組（預設門檻 0.85，須與組內每一張都達門檻），
@@ -255,8 +252,8 @@ main_v2.non_best_paths(result)   # 每組除了建議保留以外的照片
 ### XMP 星等寫入（李奇翰）
 
 ```bash
-python rebuild_xmp_sidecars.py        # 執行後輸入照片資料夾
-python preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮放、拖曳
+python tools/rebuild_xmp_sidecars.py        # 執行後輸入照片資料夾
+python tools/preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮放、拖曳
 ```
 
 把綜合分換成 1–5 星（69 分以上 5 星、64 以上 4 星、54 以上 3 星、47 以上 2 星；2026-10-04 依 935 張實拍在預設權重 0.6 下重訂，1～5 星約 10／20／40／20／10%），
@@ -276,7 +273,7 @@ python preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮放、�
 
 ```bash
 python main_v2.py                        # 照片管理主程式
-python arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
+python tools/arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
 ```
 
 `main_v2.py`：選資料夾 → 分析目前照片或整個資料夾 → 依綜合分排序。
@@ -320,11 +317,11 @@ python arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
 ### 訓練
 
 ```bash
-python train_nima.py --mode distribution --train-csv data/ava_train.csv --val-csv data/ava_val.csv --save nima_aes_dist.pth
+python training/train_nima.py --mode distribution --train-csv data/ava_train.csv --val-csv data/ava_val.csv --save nima_aes_dist.pth
 ```
 
 ```bash
-python train_tech.py --img-dir data/koniq/512x384 --save nima_tech_best.pth
+python training/train_tech.py --img-dir data/koniq/512x384 --save nima_tech_best.pth
 ```
 
 兩者共用參數：`--epochs 30`、`--batch-size 32`、`--lr-features 1e-5`、
@@ -350,18 +347,18 @@ GPU 本身只需約 33 ms，**約 84% 的時間在等 CPU 解碼與做資料增�
 ### 評估與比較
 
 ```bash
-python eval_models.py --save metrics.json
+python training/eval_models.py --save metrics.json
 ```
 
 ```bash
-python compare_aesthetic_models.py --val-csv data/ava_val.csv
+python training/compare_aesthetic_models.py --val-csv data/ava_val.csv
 ```
 
 ### 模型成效報表
 
 ```bash
-python model_report.py            # 完整報表，約 1–2 分鐘
-python model_report.py --quick    # 每個驗證集只取前 300 張，確認流程用
+python training/model_report.py            # 完整報表，約 1–2 分鐘
+python training/model_report.py --quick    # 每個驗證集只取前 300 張，確認流程用
 ```
 
 把兩個模型在驗證集上的表現整理成 `summary.md`（表格）、`metrics.json`、逐張預測 CSV
@@ -376,8 +373,8 @@ python model_report.py --quick    # 每個驗證集只取前 300 張，確認流
 ### 效能量測
 
 ```bash
-python benchmark_gpu.py           # 約 3–5 分鐘
-python benchmark_gpu.py --quick   # 約 1 分鐘，數字只用來確認流程
+python training/benchmark_gpu.py           # 約 3–5 分鐘
+python training/benchmark_gpu.py --quick   # 約 1 分鐘，數字只用來確認流程
 ```
 
 照課程投影片 4-3 的測速三守則（warm-up、計時前後 synchronize、重複 20 次取中位數與 IQR）量測：
@@ -388,9 +385,9 @@ python benchmark_gpu.py --quick   # 約 1 分鐘，數字只用來確認流程
 ### 資料準備腳本
 
 ```bash
-python build_ava_labels.py    # 從 AVA 原始評分分佈重建完整標籤（含 1–10 級分佈）
-python split_koniq.py         # 切分 KonIQ → train_tech.csv / val_tech.csv
-python split_data.py          # 切分 data/train_full.csv → train.csv / val.csv
+python training/build_ava_labels.py    # 從 AVA 原始評分分佈重建完整標籤（含 1–10 級分佈）
+python training/split_koniq.py         # 切分 KonIQ → train_tech.csv / val_tech.csv
+python training/split_data.py          # 切分 data/train_full.csv → train.csv / val.csv
 ```
 
 `split_data.py` 原本讀 `data/train.csv` 又寫回同一個檔，重複執行會每次再砍掉 20%
@@ -405,7 +402,7 @@ python split_data.py          # 切分 data/train_full.csv → train.csv / val.c
 ### 資料庫維護
 
 ```bash
-python reset_db_analysis.py <db路徑> --apply
+python tools/reset_db_analysis.py <db路徑> --apply
 ```
 
 美感模型由二元換成分佈後輸出尺度改變（舊：0–100 且大量卡在極值；新：實際約 21–74），
@@ -417,7 +414,24 @@ python reset_db_analysis.py <db路徑> --apply
 
 ## 專案結構
 
+根目錄只放主程式與它用到的模組；命令列工具在 `tools/`，訓練與評估在 `training/`（都從專案根目錄執行，例如 `python tools/score.py 照片.jpg`）。
+
 ```
+start.py                一鍵啟動：檢查並安裝套件、核對權重，再開啟主程式
+start_windows.bat       Windows 雙擊啟動（呼叫 start.py）
+start_mac.command       Mac 雙擊啟動（呼叫 start.py）
+check_env.py            完整的環境自檢（缺什麼、怎麼補、權重是不是同一版）
+main_v2.py              照片管理主程式：PyQt6 介面 + SQLite 資料庫（童小席）
+ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + 綜合分
+batch_pipeline.py       批次分析核心：平行解碼 + 單一推論消費者（宋宇宸）
+qt_batch_worker.py      前台的背景分析執行緒，同時讀拍攝時間（宋宇宸）
+photo_grouping.py       以特徵餘弦相似度分組、挑建議保留（前台與命令列共用）
+burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別
+raw_processor.py        XMP 星等寫入（李奇翰）
+shooting_info.py        讀拍攝資訊（相機、ISO、快門……），前台結果面板用
+nima_aes_dist.pth       美感模型權重
+nima_tech_best.pth      技術模型權重
+
 common/                 模型架構、前處理、訓練迴圈的唯一定義
 ├── model.py            NIMABaseline（MobileNetV2）+ emd_loss
 ├── transforms.py       build_transform（訓練/驗證/推論共用）
@@ -425,41 +439,31 @@ common/                 模型架構、前處理、訓練迴圈的唯一定義
 ├── metrics.py          混淆矩陣、ROC、相關係數、EMD 等指標（報表用）
 └── plotting.py         報表圖表的共用樣式（不從 common 匯出，避免推論依賴 matplotlib）
 
-ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + 綜合分
-main_v2.py              照片管理前台：PyQt6 介面 + SQLite 資料庫（童小席）
-arw_viewer_gui_v2.py    單張檢視與評分（童小席）
-arw_viewer_gui.py       舊版單張檢視器（v2 繼承它）
-check_env.py            環境自檢（換電腦時先跑：缺什麼、怎麼補、權重是不是同一版）
+tools/                  命令列工具
+├── score.py            評分單張照片或整個資料夾
+├── run_batch.py        批次分析，輸出 JSONL
+├── run_bursts.py       連拍候選
+├── pick_best.py        使用者自己指定一組連拍，只做排名與挑選
+├── compare_batch.py    循序與平行解碼的耗時與分數比較（宋宇宸）
+├── validate_grouping.py  以人工標註計算分組的 precision／recall／F1（宋宇宸）
+├── check_without_weights.py  沒有權重時可先跑的測試（宋宇宸）
+├── rebuild_xmp_sidecars.py   批次重寫資料夾內 RAW 的 .xmp 星等（李奇翰）
+├── preview_viewer.py   唯讀照片預覽（縮放、拖曳）
+├── arw_viewer_gui_v2.py  單張檢視與評分（童小席；arw_viewer_gui.py 是它繼承的舊版）
+└── reset_db_analysis.py  清除舊尺度的資料庫分析結果
 
-train_nima.py           美感模型訓練（single / distribution 雙模式）
-train_tech.py           技術模型訓練
-eval_models.py          輸出客觀指標（PLCC/SRCC/AUC）
-compare_aesthetic_models.py  跨模式公平比較美感模型
-model_report.py         模型成效報表（混淆矩陣、門檻掃描、細項分析、圖表）
-benchmark_gpu.py        GPU / CPU 效能量測（測速三守則）
-
-batch_pipeline.py       批次分析核心：平行解碼 + 單一推論消費者（宋宇宸）
-run_batch.py            批次分析命令列入口
-photo_grouping.py       以特徵餘弦相似度分組、挑建議保留
-burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別（序號／型號／不比對）
-run_bursts.py           連拍候選命令列入口
-pick_best.py            使用者自己指定一組連拍，只做排名與挑選
-qt_batch_worker.py      前台的背景分析執行緒（宋宇宸）
-compare_batch.py        循序與平行解碼的耗時與分數比較（宋宇宸）
-validate_grouping.py    以人工標註計算分組的 precision／recall／F1（宋宇宸）
-check_without_weights.py  沒有權重時可先跑的測試（宋宇宸）
-
-shooting_info.py        讀拍攝資訊（相機、ISO、快門……），前台結果面板用
-raw_processor.py        XMP 星等寫入與共用解碼（李奇翰）
-rebuild_xmp_sidecars.py 批次重寫資料夾內 RAW 的 .xmp 星等
-preview_viewer.py       唯讀照片預覽（縮放、拖曳）
-
-build_ava_labels.py     重建 AVA 標籤
-split_data.py           切分美感資料
-split_koniq.py          切分 KonIQ 資料
-reset_db_analysis.py    清除舊尺度的資料庫分析結果
+training/               訓練與評估
+├── train_nima.py       美感模型訓練（single / distribution 雙模式）
+├── train_tech.py       技術模型訓練
+├── eval_models.py      輸出客觀指標（PLCC/SRCC/AUC）
+├── compare_aesthetic_models.py  跨模式公平比較美感模型
+├── model_report.py     模型成效報表（混淆矩陣、門檻掃描、細項分析、圖表）
+├── benchmark_gpu.py    GPU / CPU 效能量測（測速三守則）
+├── build_ava_labels.py 重建 AVA 標籤
+└── split_data.py、split_koniq.py  切分美感、技術資料
 
 tests/                  unittest 測試（見 tests/README.md）
+docs/                   驗證紀錄、交接文件
 ```
 
 ### 為什麼有 `common/`
@@ -486,5 +490,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 253 個測試。
+目前共 263 個測試。
 細節見 [tests/README.md](tests/README.md)。

@@ -1,8 +1,8 @@
 """
 把整批照片當成「同一組連拍」，直接排名並挑出建議保留的那一張。
 
-    python run_batch.py <一組連拍的資料夾> --output burst.jsonl
-    python pick_best.py burst.jsonl
+    python tools/run_batch.py <一組連拍的資料夾> --output burst.jsonl
+    python tools/pick_best.py burst.jsonl
 
 與 photo_grouping.py / run_bursts.py 的差別：本腳本不自己判斷哪些照片是一組。
 分組由使用者決定——在相機或 Lightroom 裡挑好一組連拍、複製到同一個資料夾即可。
@@ -21,9 +21,14 @@
 仍會計算每張與建議保留照片的相似度，但**不**用來排除任何照片，只在偏低時印出提醒，
 協助發現「不小心把不同組的照片放進同一個資料夾」。
 """
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import json
-from pathlib import Path
 
 from photo_grouping import DEFAULT_THRESHOLD, load_photos, unit_features
 

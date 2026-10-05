@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests._util import PROJECT_ROOT, required_weight_files, weights_available
+from tests._util import PROJECT_ROOT, required_weight_files, weights_available, script_path
 
 
 def _run(code_or_script, cwd, args=()):
@@ -126,7 +126,7 @@ class TestSplitDataNeverWritesItsSource(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.sandbox = Path(self.tmp.name)
-        shutil.copy(PROJECT_ROOT / 'split_data.py', self.sandbox)
+        shutil.copy(script_path('split_data.py'), self.sandbox)
         (self.sandbox / 'data').mkdir()
         rows = ['index,image,label'] + [f'{i},{1000 + i},{i % 2}' for i in range(self.ROWS)]
         self.source = self.sandbox / 'data' / 'train_full.csv'
@@ -215,13 +215,13 @@ class TestSplitKoniqHelp(unittest.TestCase):
             'image_name,MOS\n' + rows + '\n', encoding='utf-8')
 
     def test_help_does_not_write_anything(self):
-        result = _run(PROJECT_ROOT / 'split_koniq.py', self.sandbox, args=('--help',))
+        result = _run(script_path('split_koniq.py'), self.sandbox, args=('--help',))
         self.assertEqual(result.returncode, 0, result.stderr[-400:])
         self.assertFalse((self.sandbox / 'data' / 'train_tech.csv').exists(),
                          '--help 不該開始切分')
 
     def test_normal_run_still_splits_80_20(self):
-        result = _run(PROJECT_ROOT / 'split_koniq.py', self.sandbox)
+        result = _run(script_path('split_koniq.py'), self.sandbox)
         self.assertEqual(result.returncode, 0, result.stderr[-400:])
         train = (self.sandbox / 'data' / 'train_tech.csv').read_text(encoding='utf-8')
         val = (self.sandbox / 'data' / 'val_tech.csv').read_text(encoding='utf-8')
@@ -230,7 +230,7 @@ class TestSplitKoniqHelp(unittest.TestCase):
 
     def test_missing_source_is_an_error(self):
         with tempfile.TemporaryDirectory() as empty:
-            result = _run(PROJECT_ROOT / 'split_koniq.py', Path(empty))
+            result = _run(script_path('split_koniq.py'), Path(empty))
         self.assertEqual(result.returncode, 1)
         self.assertIn('[FAIL]', result.stdout)
 

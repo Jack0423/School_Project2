@@ -14,6 +14,9 @@ python -m unittest tests.test_evaluate_photo -v
 
 用標準庫的 `unittest` 而非 pytest，**不需要安裝任何額外套件**。
 
+命令列工具在 `tools/`、訓練與評估在 `training/`；`tests/__init__.py` 把這兩個資料夾加進 `sys.path`，
+測試可以直接 `import pick_best`；要用路徑執行腳本時用 `tests._util.script_path('檔名.py')`。
+
 ## 這些測試在守什麼
 
 每一項都對應稽核中找到的一個真實缺陷，而不是為了湊覆蓋率。
@@ -35,6 +38,7 @@ python -m unittest tests.test_evaluate_photo -v
 | `test_folder_grouping.py` | 前台分組的底層：舊的 photos.db 啟動時要補上 feature／capture_meta 兩欄、原本的資料保留；特徵存進去讀出來不失真，重新分析沒有特徵時要清掉舊的（那是別的模型版本算的）；`group_folder` 只列 2 張以上的組、組內最高分為建議保留且跟著權重變、沒分析／舊版本／沒有特徵的列為還不能分組、其他資料夾與已刪除的照片不算，而且和 `photo_grouping.py` 對同一批照片分出一樣的組；連拍要同一台相機、5 秒內，讀不到拍攝時間的要列出來，沒讀過又沒有 ExifTool 時要提示；「開始批次分析」要補跑沒有特徵、沒讀過拍攝時間的照片（沒有 ExifTool 時不補跑拍攝時間，否則每次都重跑）；ExifTool 讀拍攝時間要能處理中文檔名與沒有 EXIF 的圖，ExifTool 整個壞掉時要報錯而不是當成每張都沒有 EXIF |
 | `test_batch_cancel.py` | 取消分析（`analyze_batch` 的 `should_stop`）：停下後不可再推論任何一張、已完成的每一張都要寫進結果檔、回傳 `cancelled`；沒有要求取消時照常跑完 |
 | `test_batch_comparison.py`、`test_grouping_validation.py` | `compare_batch.py` 與 `validate_grouping.py`：循序與平行的分數必須一致、有失敗或空結果不可判定通過；成對 precision／recall／F1 的計算，空白、重複標註要拒絕，全是單張時不可宣稱 F1 完美 |
+| `test_start.py` | 一鍵啟動：版本只從 requirements.txt 讀；有 NVIDIA 顯卡從 PyTorch 索引裝 CUDA 版，沒有（包括 Mac）裝同版本的 CPU 版；裝進執行 start.py 的那個 Python；沒有回答不算同意；拒絕安裝或缺權重時不執行 pip、不開主程式 |
 | `test_console_encoding.py` | 原始碼不得含 cp950 編不出來的字元。輸出被重導向到檔案或管線時 Python 會退回 cp950，一個 emoji 就會讓保護訊息本身拋 `UnicodeEncodeError` |
 | `test_metrics.py` | 報表指標（`common/metrics.py`）用手算得出答案的例子逐項驗證：同分樣本不可影響 AUC、沒有判定為正時 F1 是 0 而非 nan、報表的判定方向（`<` / `>`）必須與 `ai_inference.py` 相同。指標算錯不會報錯，只會把錯的數字寫進報告 |
 

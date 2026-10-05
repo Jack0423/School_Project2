@@ -31,7 +31,7 @@
 
 用法
 ----
-    python build_ava_labels.py
+    python training/build_ava_labels.py
 """
 import argparse
 import os

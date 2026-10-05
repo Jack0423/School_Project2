@@ -1,10 +1,15 @@
 """Evaluate grouping against independent human labels (pairwise and exact groups)."""
+import sys
+from pathlib import Path
+
+# 這支程式在子資料夾裡；共用模組（ai_inference、common 等）在專案根目錄
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import csv
 import json
 from collections import Counter
 from itertools import combinations
-from pathlib import Path
 
 from burst_metadata import DEFAULT_MAX_SECONDS, build_burst_check, paths_without_metadata
 from photo_grouping import DEFAULT_THRESHOLD, group_photos, load_photos
