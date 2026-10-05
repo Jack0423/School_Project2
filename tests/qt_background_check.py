@@ -90,6 +90,29 @@ with tempfile.TemporaryDirectory() as tmp:
             window.analyze_current()
             assert window._analysis_thread is not None
             wait_done()
+        # Capture times for burst grouping are read beside the analysis and stored on the GUI thread,
+        # before completion; photos already read are not read again.
+        stored = []
+        original_store = gui.store_capture_metadata
+        def checked_store(metadata):
+            assert threading.get_ident() == main_id, 'Capture metadata stored off GUI thread'
+            assert window._analysis_summary is None, 'Capture metadata arrived after completion'
+            stored.append(dict(metadata))
+            return original_store(metadata)
+        conn = gui.get_conn()
+        conn.execute('UPDATE photos_v2 SET capture_meta = NULL')
+        conn.commit()
+        conn.close()
+        with patch.object(gui, 'store_capture_metadata', checked_store), \
+                patch('qt_batch_worker.read_metadata', side_effect=lambda chunk: {p: {'Model': 'TEST'} for p in chunk}):
+            window._start_analysis(paths)
+            assert window._analysis_thread.metadata_paths == tuple(paths)
+            wait_done()
+        assert sorted(p for chunk in stored for p in chunk) == sorted(paths)
+        assert gui.paths_missing_capture_metadata(paths) == []
+        window._start_analysis(paths)
+        assert window._analysis_thread.metadata_paths == (), 'Capture metadata read twice'
+        wait_done()
         # Fatal pipeline errors restore controls and preserve the error.
         with patch('qt_batch_worker.analyze_batch', side_effect=OSError('disk full')):
             window._start_analysis(paths)
@@ -129,4 +152,4 @@ with tempfile.TemporaryDirectory() as tmp:
             assert close_window.called, 'Window should close after the cancel finishes'
     timer.stop()
     window.close()
-print('PASS: real Qt background execution, responsive timer, serial inference, GUI-thread DB, guards, cleanup, failures and cancel')
+print('PASS: real Qt background execution, responsive timer, serial inference, GUI-thread DB, guards, cleanup, failures, cancel and capture metadata')

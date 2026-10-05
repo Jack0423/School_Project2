@@ -73,11 +73,26 @@ DEFAULT_THRESHOLD = 0.85
 """
 
 
-def group_photos(input_path, threshold=DEFAULT_THRESHOLD, can_pair=None):
+def _check_threshold(threshold):
     if not 0 <= threshold <= 1:
         raise ValueError("相似度門檻必須介於 0 與 1")
 
-    photos = load_photos(input_path)
+
+def group_photos(input_path, threshold=DEFAULT_THRESHOLD, can_pair=None):
+    """讀批次結果（JSONL）再分組，命令列工具用。"""
+    _check_threshold(threshold)
+    return group_records(load_photos(input_path), threshold, can_pair)
+
+
+def group_records(photos, threshold=DEFAULT_THRESHOLD, can_pair=None):
+    """
+    分組本體。photos 是 [{"path", "overall_score", "feature_vector"}, ...]，
+    綜合分必須是同一組權重算的（load_photos 會檢查；前台從資料庫讀出來的本來就是同一組）。
+
+    命令列（group_photos）與前台（main_v2.group_folder）共用這一份，
+    兩邊對同一批照片分出來的組才會一樣。
+    """
+    _check_threshold(threshold)
 
     if not photos:
         return []

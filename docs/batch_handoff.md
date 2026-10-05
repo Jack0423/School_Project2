@@ -109,3 +109,5 @@ python -m unittest tests.test_batch_comparison tests.test_grouping_validation te
   `BatchAnalysisThread.cancel()` 設定旗標，前台進度條旁的按鈕呼叫它。手上這張推論完就停（不強制中斷 GPU／RAW 解碼），
   已完成的照常寫進資料庫與 `reports/batches/` 的結果檔，回傳值多一個 `cancelled`。
   分析中關閉視窗改成先詢問，選「是」就取消並在停下後自動關閉。測試見 `tests/test_batch_cancel.py` 與 `qt_background_check.py`。
+- 分組底層（王凱立）：前台分析時特徵存進 `photos.db`、拍攝時間由 `BatchAnalysisThread` 背景讀（`capture_metadata` signal，
+  在主執行緒寫入）；`main_v2.group_folder()` 從資料庫分組。前台的分組畫面接法見 [grouping_handoff.md](grouping_handoff.md)。

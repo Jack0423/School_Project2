@@ -1,4 +1,5 @@
 import html
+import json
 import os
 import shutil
 import sys
@@ -12,6 +13,8 @@ import ai_inference
 from raw_processor import RawProcessor, SIDECAR_EXTENSIONS, RATING_THRESHOLDS
 from shooting_info import read_shooting_info, format_shooting_info
 from qt_batch_worker import BatchAnalysisThread
+from photo_grouping import DEFAULT_THRESHOLD, group_records
+from burst_metadata import DEFAULT_MAX_SECONDS, build_burst_check, camera_identity, parse_capture_time
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QListWidget,
     QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox, QCheckBox,
@@ -430,9 +433,19 @@ def init_db():
             action TEXT DEFAULT '',
             technical_issues TEXT DEFAULT '',
             is_best INTEGER DEFAULT 0,
-            analyzed INTEGER DEFAULT 0
+            analyzed INTEGER DEFAULT 0,
+            feature BLOB,
+            capture_meta TEXT
         )
     """)
+    # 分組用的兩欄（2026-10-05 加入）。CREATE TABLE IF NOT EXISTS 不會幫已經存在的 photos.db 加欄位，
+    # 舊的資料庫要自己補，否則一寫入就是 no such column。
+    #   feature       1280 維特徵（float32，5 KB／張），和同一列的 model_version 綁在一起
+    #   capture_meta  連拍判定用的 EXIF 欄位（JSON）；NULL＝還沒讀過，{}＝讀過但沒有
+    columns = {row[1] for row in cur.execute("PRAGMA table_info(photos_v2)")}
+    for name, kind in (("feature", "BLOB"), ("capture_meta", "TEXT")):
+        if name not in columns:
+            cur.execute(f"ALTER TABLE photos_v2 ADD COLUMN {name} {kind}")
     conn.commit()
     conn.close()
 
@@ -527,6 +540,10 @@ def update_analysis(file_path, result, aesthetic_weight):
 
     action = "建議檢視" if status == "警告" else "建議保留"
 
+    # 沒有特徵時存 NULL，不能留著上一次的：那是別的模型版本算的
+    feature = result.get("feature_vector")
+    feature = None if feature is None else feature_blob(feature)
+
     conn = get_conn()
     cur = conn.cursor()
 
@@ -535,17 +552,174 @@ def update_analysis(file_path, result, aesthetic_weight):
         SET aesthetic_score = ?, technical_score = ?, overall_score = ?,
             aesthetic_weight = ?, technical_weight = ?, model_version = ?,
             status = ?, suggestion = ?, action = ?, technical_issues = ?,
-            analyzed = 1
+            feature = ?, analyzed = 1
         WHERE file_path = ?
     """, (
         aesthetic_score, technical_score, overall_score,
         aesthetic_weight, technical_weight, MODEL_VERSION,
-        status, suggestion, action, technical_issues,
+        status, suggestion, action, technical_issues, feature,
         os.path.abspath(file_path)
     ))
 
     conn.commit()
     conn.close()
+
+FEATURE_DIM = 1280
+
+
+def feature_blob(vector):
+    """
+    1280 維特徵存成 little-endian float32（5 KB／張，325 張約 1.6 MB）。
+    模型輸出本來就是 float32，存回去不失真；格式寫死 little-endian，Windows 與 Mac 存的資料庫可以互通。
+    形狀或數值不對時回傳 None（當成沒有特徵），不讓壞資料進到分組。
+    """
+    array = np.asarray(vector, dtype="<f4")
+    if array.shape != (FEATURE_DIM,) or not np.isfinite(array).all():
+        return None
+    return array.tobytes()
+
+
+def store_capture_metadata(metadata):
+    """把 {照片路徑: 連拍欄位} 存進資料庫（分析時背景讀到的拍攝時間，見 qt_batch_worker）。"""
+    conn = get_conn()
+    conn.executemany(
+        "UPDATE photos_v2 SET capture_meta = ? WHERE file_path = ?",
+        [(json.dumps(item, ensure_ascii=False), os.path.abspath(path))
+         for path, item in metadata.items()])
+    conn.commit()
+    conn.close()
+
+
+def paths_missing_capture_metadata(paths):
+    """paths 之中還沒讀過拍攝時間的（照原順序）。"""
+    conn = get_conn()
+    missing = {row[0] for row in conn.execute(
+        "SELECT file_path FROM photos_v2 WHERE capture_meta IS NULL")}
+    conn.close()
+    return [p for p in paths if os.path.abspath(p) in missing]
+
+
+def analysis_candidates(paths):
+    """
+    「開始批次分析」要跑的照片（照 paths 的順序）：
+      * 還沒分析，或是舊模型版本的分數
+      * 分數是目前版本、但沒有分組用的特徵：加入分組功能前分析的，第一次會整個資料夾重跑一次
+      * 有 ExifTool、但還沒讀過拍攝時間：分析時還沒裝 ExifTool 的話，不重跑就永遠缺這幾張的連拍資料
+    """
+    exiftool = shutil.which("exiftool") is not None
+    conn = get_conn()
+    rows = {
+        row[0]: row[1:]
+        for row in conn.execute(
+            "SELECT file_path, analyzed, model_version, feature IS NOT NULL, capture_meta IS NOT NULL "
+            "FROM photos_v2")
+    }
+    conn.close()
+
+    candidates = []
+    for path in paths:
+        row = rows.get(os.path.abspath(path))
+        if row is None:
+            candidates.append(path)
+            continue
+        analyzed, version, has_feature, has_meta = row
+        if not analyzed or version != MODEL_VERSION or not has_feature or (exiftool and not has_meta):
+            candidates.append(path)
+    return candidates
+
+
+GROUP_MODES = ("similar", "burst")
+
+
+def group_folder(folder, mode="similar", threshold=DEFAULT_THRESHOLD,
+                 max_seconds=DEFAULT_MAX_SECONDS, camera_match="model"):
+    """
+    相似照片分組（F06），給前台呼叫。只讀資料庫，不跑模型、不呼叫 ExifTool，可以直接在主執行緒呼叫。
+
+    mode：
+      "similar"  內容相似度達門檻（預設 0.85）就同一組，而且必須和組內每一張都達門檻
+      "burst"    連拍：另外要同一台相機、整組拍攝時間在 max_seconds（預設 5 秒）內
+    兩個門檻是 2026-09-23 用 325 張人工標註校準的（見 photo_grouping、burst_metadata 的常數說明）。
+    分組本體和命令列工具（photo_grouping.py、run_bursts.py）是同一份程式。
+
+    回傳 dict：
+      groups           2 張以上的組：[{"group_id", "count", "best_path",
+                         "photos": [{"path", "file_name", "overall_score", "is_best", "similarity_to_best"}, ...]}, ...]
+                       group_id 從 1 連號；組依組內最高綜合分由高到低排，組內照片也是高到低。
+                       is_best 是組內綜合分（目前權重）最高的那張，也就是建議保留的
+      singles          可以分組、但沒有相似照片的
+      not_ready        還不能分組的：沒分析、舊模型版本、或沒有特徵（加入分組功能前分析的）
+                       → 按「開始批次分析」就會補上
+      no_capture_time  只有連拍模式：讀不到拍攝時間或相機的照片（截圖、編修輸出的圖沒有 EXIF，
+                       或分析時沒裝 ExifTool），這些不會被分進連拍組
+      exiftool_missing 只有連拍模式：有照片還沒讀過拍攝時間，而且這台電腦沒有 ExifTool
+    三個清單都是照片路徑，依檔名排序。
+    """
+    if mode not in GROUP_MODES:
+        raise ValueError(f"mode 必須是 {GROUP_MODES} 其中之一")
+
+    folder = os.path.abspath(folder)
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT file_path, file_name, overall_score, analyzed, model_version, feature, capture_meta "
+        "FROM photos_v2 ORDER BY file_name").fetchall()
+    conn.close()
+
+    ready, not_ready, capture_meta = [], [], {}
+    for path, name, score, analyzed, version, feature, meta in rows:
+        if os.path.dirname(os.path.abspath(path)) != folder or not os.path.isfile(path):
+            continue
+        if (not analyzed or version != MODEL_VERSION or score is None
+                or feature is None or len(feature) != FEATURE_DIM * 4):
+            not_ready.append(path)
+            continue
+        ready.append({"path": path, "file_name": name, "overall_score": score,
+                      "feature_vector": np.frombuffer(feature, dtype="<f4")})
+        if meta is not None:
+            capture_meta[path] = json.loads(meta)
+
+    can_pair = None
+    no_capture_time = []
+    exiftool_missing = False
+    if mode == "burst":
+        can_pair, _ = build_burst_check(capture_meta, max_seconds=max_seconds, camera_match=camera_match)
+        for record in ready:
+            item = capture_meta.get(record["path"])
+            if (item is None or parse_capture_time(item) is None
+                    or camera_identity(item, camera_match) is None):
+                no_capture_time.append(record["path"])
+        exiftool_missing = (len(capture_meta) < len(ready)) and shutil.which("exiftool") is None
+
+    groups = group_records(ready, threshold, can_pair)
+
+    names = {record["path"]: record["file_name"] for record in ready}
+    multi = []
+    for group in groups:
+        if group["count"] < 2:
+            continue
+        group = dict(group, group_id=len(multi) + 1)
+        for photo in group["photos"]:
+            photo["file_name"] = names[photo["path"]]
+        multi.append(group)
+
+    by_name = lambda paths: sorted(paths, key=lambda p: os.path.basename(p).lower())  # noqa: E731
+    return {
+        "mode": mode,
+        "groups": multi,
+        "singles": by_name(g["best_path"] for g in groups if g["count"] == 1),
+        "not_ready": by_name(not_ready),
+        "no_capture_time": by_name(no_capture_time),
+        "exiftool_missing": exiftool_missing,
+    }
+
+
+def non_best_paths(grouping):
+    """group_folder 結果中，每組除了建議保留那張以外的照片（「選取每組非最佳」用）。"""
+    return [photo["path"]
+            for group in grouping["groups"]
+            for photo in group["photos"]
+            if not photo["is_best"]]
+
 
 def recompute_scores(aesthetic_weight, folder):
     """
@@ -1055,11 +1229,7 @@ class PhotoManagerV2(QWidget):
             self.result_label.setText("請先選擇照片資料夾。")
             return
 
-        candidates = []
-        for file_path in self.photo_paths.values():
-            row = get_photo(file_path)
-            if not row or row[13] == 0 or row[7] != MODEL_VERSION:
-                candidates.append(file_path)
+        candidates = analysis_candidates(self.photo_paths.values())
 
         if not candidates:
             self._set_progress(1, 1, "目前資料夾已是最新模型版本")
@@ -1088,7 +1258,8 @@ class PhotoManagerV2(QWidget):
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
             output = output_dir / f"batch-{uuid4().hex}.jsonl"
-            worker = BatchAnalysisThread(paths, output, self._analysis_weight, self)
+            worker = BatchAnalysisThread(paths, output, self._analysis_weight, self,
+                                         metadata_paths=paths_missing_capture_metadata(paths))
         except Exception as exc:
             self.result_label.setText(f"無法啟動分析：{html.escape(str(exc))}")
             return
@@ -1112,6 +1283,7 @@ class PhotoManagerV2(QWidget):
         self.result_label.setText("AI 背景分析中，可以繼續瀏覽照片。")
 
         worker.progress.connect(self._analysis_progress)
+        worker.capture_metadata.connect(self._analysis_capture_metadata)
         worker.completed.connect(self._analysis_completed)
         worker.failed.connect(self._analysis_failed)
         worker.finished.connect(self._analysis_finished)
@@ -1132,6 +1304,13 @@ class PhotoManagerV2(QWidget):
             self._analysis_failures.append((name, record.get("error") or "未知錯誤"))
         self._set_progress(done, total, f"{done} / {total}")
         self.progress_label.setText(f"已處理：{name}")
+
+    def _analysis_capture_metadata(self, metadata):
+        # 主執行緒：連拍分組要的拍攝時間，分析時在背景讀到的
+        try:
+            store_capture_metadata(metadata)
+        except Exception as exc:
+            print(f"[拍攝時間] 寫入資料庫失敗：{exc}")
 
     def _analysis_completed(self, summary):
         self._analysis_summary = summary

@@ -1,6 +1,9 @@
 import json
 import math
+import os
 import re
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -108,6 +111,56 @@ DEFAULT_MAX_SECONDS = 5.0
 """
 
 
+# 連拍判定用到的欄位（parse_capture_time 與 camera_identity 讀的那些）。
+# 命令列工具由使用者自己用 ExifTool 匯出同樣的欄位（見 README）；前台在分析時用 read_metadata 讀，存進資料庫。
+METADATA_TAGS = ("SubSecDateTimeOriginal", "DateTimeOriginal", "Make", "Model",
+                 "SerialNumber", "InternalSerialNumber")
+
+
+def read_metadata(paths, exiftool=None):
+    """
+    用一次 ExifTool 讀 paths 的連拍欄位，回傳 {傳入的路徑: 欄位}。沒有 ExifTool 時回傳 None。
+
+    檔案存在、但讀不到這些欄位的照片（截圖、編修輸出的圖）回傳空 dict，
+    表示「讀過了，就是沒有」，呼叫端可以記下來不必再讀；不存在的檔案不出現在結果裡。
+    ExifTool 整個執行失敗時拋 RuntimeError，呼叫端不該把這種情況記成「沒有」。
+
+    不加 -fast2：它會跳過 MakerNotes，Sony 的 InternalSerialNumber 就讀不到了（325 張實測）。
+    ExifTool 每次啟動約 0.4 秒、每張約 25 毫秒，所以一次交給它一批，不要一張叫一次。
+    路徑以 UTF-8 參數檔從標準輸入傳：Windows 上中文檔名直接放命令列會變亂碼。
+    """
+    paths = list(paths)
+    exe = exiftool or shutil.which("exiftool")
+    if exe is None:
+        return None
+    if not paths:
+        return {}
+
+    args = ["-json", *[f"-{tag}" for tag in METADATA_TAGS], *paths]
+    result = subprocess.run(
+        [exe, "-charset", "filename=utf8", "-@", "-"],
+        input=("\n".join(args) + "\n").encode("utf-8"),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    output = result.stdout.decode("utf-8", "replace").strip()
+    try:
+        items = json.loads(output) if output else []
+    except ValueError as exc:
+        raise RuntimeError(f"ExifTool 的輸出無法解析：{exc}") from exc
+
+    existing = [p for p in paths if os.path.isfile(p)]
+    # 有檔案卻一筆都沒讀到：ExifTool 本身出了問題（被防毒擋掉、exiftool_files 不見……）
+    if existing and not items and result.returncode != 0:
+        error = result.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(f"ExifTool 執行失敗（離開代碼 {result.returncode}）：{error}")
+
+    found = {
+        normalized_path(item["SourceFile"]): {k: v for k, v in item.items() if k in METADATA_TAGS}
+        for item in items
+        if item.get("SourceFile")
+    }
+    return {p: found.get(normalized_path(p), {}) for p in existing}
+
+
 def load_metadata(metadata_path):
     """讀 ExifTool 的 -json 輸出，回傳 {正規化後的路徑: 該照片的欄位}。"""
     with open(metadata_path, encoding="utf-8") as file:
@@ -133,14 +186,20 @@ def paths_without_metadata(paths, metadata_path):
     return [p for p in paths if normalized_path(p) not in known]
 
 
-def build_burst_check(metadata_path, max_seconds=DEFAULT_MAX_SECONDS, camera_match="model"):
+def build_burst_check(metadata, max_seconds=DEFAULT_MAX_SECONDS, camera_match="model"):
     """
     回傳 can_pair(路徑A, 路徑B)，以及一份識別層級的統計（給使用者確認判斷依據）。
+
+    metadata：ExifTool -json 匯出檔的路徑（命令列工具），
+              或已經讀好的 {照片路徑: 欄位}（前台從資料庫讀出來的，見 read_metadata）。
     """
     if not math.isfinite(max_seconds) or max_seconds < 0:
         raise ValueError("時間門檻必須是非負的有限數字")
 
-    metadata = load_metadata(metadata_path)
+    if isinstance(metadata, dict):
+        metadata = {normalized_path(path): item for path, item in metadata.items()}
+    else:
+        metadata = load_metadata(metadata)
 
     info = {
         path: (parse_capture_time(item), camera_identity(item, camera_match))
@@ -158,13 +217,19 @@ def build_burst_check(metadata_path, max_seconds=DEFAULT_MAX_SECONDS, camera_mat
         if capture_time is None:
             stats["無拍攝時間"] += 1
 
+    # 每個路徑只正規化一次：normalized_path 的 resolve() 每次都要問檔案系統，
+    # 分組時 can_pair 會被呼叫數萬次（325 張約 3.9 萬次，原本光這裡就要 6 秒）。
+    lookup = {}
+
+    def find(path):
+        entry = lookup.get(path)
+        if entry is None:
+            entry = lookup[path] = info.get(normalized_path(path), (None, None))
+        return entry
+
     def can_pair(path_a, path_b):
-        time_a, camera_a = info.get(
-            normalized_path(path_a), (None, None)
-        )
-        time_b, camera_b = info.get(
-            normalized_path(path_b), (None, None)
-        )
+        time_a, camera_a = find(path_a)
+        time_b, camera_b = find(path_b)
 
         if time_a is None or time_b is None:
             return False

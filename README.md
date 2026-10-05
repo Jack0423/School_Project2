@@ -234,6 +234,20 @@ python pick_best.py batch_01.jsonl --output best_pick.json
   不依賴 EXIF 也不受相似度門檻影響；相似度只在偏低時印出提醒，不會排除照片。
 
 四者的輸出都含照片的絕對路徑，已列入 `.gitignore`。輸出檔已存在時會拒絕覆寫。
+
+**前台的分組（F06，`main_v2.group_folder`）**：前台批次分析時，特徵（float32，5 KB／張）存進 `photos.db`，
+連拍要的拍攝時間與相機由 ExifTool 在分析時同時讀、也存進資料庫（325 張分析 33.2 → 33.5 秒，幾乎不多花時間）。
+所以前台分組直接讀資料庫，不用 JSONL，也不用自己匯出 metadata：
+
+```python
+result = main_v2.group_folder(資料夾, mode="similar")   # 或 "burst"（連拍）
+result["groups"]                 # 2 張以上的組，每張照片有 is_best（組內建議保留）
+main_v2.non_best_paths(result)   # 每組除了建議保留以外的照片
+```
+
+分組本體與 `photo_grouping.py`／`run_bursts.py` 是同一份程式。325 張 ARW 實測相似 86 組、連拍 97 組，各約 0.16 秒，
+與命令列對同一次分析分出的組、建議保留的照片完全相同。加入這個功能前分析的照片沒有特徵，第一次按「開始批次分析」會補跑。
+前台的分組畫面（宋宇宸）還在做，接法見 [docs/grouping_handoff.md](docs/grouping_handoff.md)。
 `run_batch.py` 遇到讀不了的照片格式（例如 iPhone 的 `.heic`）會列出略過的張數；支援哪些格式以 `ai_inference.IMAGE_EXTENSIONS` 為準，前台掃資料夾也請用這一份。
 
 門檻 0.85 與 5 秒是 2026-09-23 用 325 張 ARW 的人工標註校準出來的：原本的 0.9 / 2 秒，抽查 15 張未分組照片有 11 張其實有同伴被漏掉；放寬後救回 9 張，且重新標註「有變動的 35 組」沒有出現錯誤合併（連同第一輪的 105 組，共 140 組人工判斷、0 組誤分）。詳見 `photo_grouping.py` 與 `burst_metadata.py` 的常數說明。
@@ -287,6 +301,7 @@ python arw_viewer_gui_v2.py [照片路徑]    # 單張檢視與評分
   有 ExifTool 時 RAW 與 JPG 都讀得到；沒有 ExifTool 時 JPG／TIFF 改用 PIL，RAW 會提示需要 ExifTool；
   截圖或編修輸出的照片沒有 EXIF 時會說明。每張照片只讀一次（約 0.2 秒）。
 - 分析結果存在程式旁的 `photos.db`（已列入 `.gitignore`）。換資料夾不會清掉，資料夾裡已刪除的照片會從資料庫移除。
+  也存分組用的特徵與拍攝時間（見「前台的分組」）；舊的 `photos.db` 啟動時自動補上這兩欄，325 張約 2 MB。
 - XMP 星等（見上一節）有兩種寫法：「寫入 XMP 星等」按鈕寫整個資料夾的 RAW；勾選「分析後自動寫入 XMP」時，
   每次分析完只寫剛分析的那幾張（期末報告 1.2 的 Lightroom 連動）。勾選框預設不勾，勾選時會先說明會新建 `.xmp`、
   會覆蓋 Lightroom 的星等。兩種寫法都用批次版 `update_ratings`（同星等共用一次 ExifTool）。
@@ -471,5 +486,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 239 個測試。
+目前共 253 個測試。
 細節見 [tests/README.md](tests/README.md)。
