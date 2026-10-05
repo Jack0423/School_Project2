@@ -40,6 +40,10 @@ KonIQ 的驗證集是自己隨機切的 20%，**不是**官方的 test 切分（
    - 第一次會列出缺少的套件，按 y 自動安裝：有 NVIDIA 顯卡裝 GPU 版 PyTorch（約 3 GB），其他電腦（包括 Mac）裝 CPU 版。
    - 沒有 ExifTool 只會提醒，不影響評分（安裝見下方「ExifTool」；Mac 有 Homebrew 時可以直接按 y 安裝）。
    - 都齊了就開啟照片管理主程式，之後每次雙擊都是直接開啟。
+   - **Mac 第一次雙擊被擋**（「Apple 無法驗證 start_mac.command 是否為惡意軟體」）：從網路下載、沒有付費簽章的檔案都會這樣，不是程式有問題。
+     任選一種：打開「終端機」，輸入 `cd `（後面空一格）再把專案資料夾拖進視窗、按 Enter，接著輸入 `python3 start.py`；
+     或按「完成」後到「系統設定 → 隱私權與安全性」，往下找到「已阻擋 start_mac.command」按「仍要打開」，之後雙擊就不會再被擋。
+     用 `git clone` 下載的話不會有這個問題（只有瀏覽器下載的檔案會被標記）。
 3. 有問題時執行 `python check_env.py`：逐項列出缺什麼、怎麼補（也檢查 GPU 與訓練用的套件）。
 
 **手動安裝**（不用 `start.py` 時；Mac 上的 `python`、`pip` 請改成 `python3`、`pip3`）
