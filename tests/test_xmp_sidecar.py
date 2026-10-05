@@ -225,20 +225,26 @@ class TestUpdateRatings(unittest.TestCase):
         with mock.patch('raw_processor.shutil.which', return_value='exiftool'), \
                 mock.patch('raw_processor.subprocess.run', return_value=failed) as run, \
                 mock.patch('builtins.print'):
-            results = self.rp.update_ratings(items)
+            errors = []
+            results = self.rp.update_ratings(items, errors=errors)
         self.assertEqual(results, [(False, 5), (False, 5)])
         self.assertEqual(run.call_count, 3, '整組一次，失敗後逐張各一次')
         self.assertEqual([Path(p).with_suffix('.xmp').read_bytes() for p, _ in items], before)
+        self.assertEqual([reason for _, reason in errors], ['ExifTool 錯誤：boom'] * 2,
+                         '失敗原因要回傳給畫面顯示（雙擊啟動時沒有主控台）')
 
     def test_without_exiftool_only_new_sidecars_are_written(self):
         items = [(self._photo('OLD.ARW'), 70.0), (self._photo('NEW.ARW', sidecar=False), 70.0),
                  (self._photo('IMG.jpg', sidecar=False), 70.0)]
         before = Path(items[0][0]).with_suffix('.xmp').read_bytes()
         with mock.patch('raw_processor.shutil.which', return_value=None), mock.patch('builtins.print'):
-            results = self.rp.update_ratings(items)
+            errors = []
+            results = self.rp.update_ratings(items, errors=errors)
         self.assertEqual(results, [(False, 5), (True, 5), (False, 5)])
         self.assertEqual(Path(items[0][0]).with_suffix('.xmp').read_bytes(), before)
         self.assertFalse((self.dir / 'IMG.xmp').exists(), 'JPG 不寫 sidecar')
+        self.assertEqual([(Path(p).name, 'ExifTool' in r) for p, r in errors],
+                         [('IMG.jpg', False), ('OLD.ARW', True)])
 
 
 @requires_weights

@@ -76,10 +76,13 @@ class RawProcessor:
             return ok, rating
 
         # 情況二：尚無 sidecar 檔，新建 .xmp 檔，完全不碰、不寫入原始檔本身
-        return _create_sidecar(xmp_path, rating), rating
+        ok, error = _create_sidecar(xmp_path, rating)
+        if not ok:
+            print(f"[新建 XMP 失敗] {error}")
+        return ok, rating
 
     @staticmethod
-    def update_ratings(items, on_progress=None):
+    def update_ratings(items, on_progress=None, errors=None):
         """
         一次寫很多張照片的星等。items 是 [(照片路徑, 綜合分), ...]，回傳同順序的 [(是否成功, 星等), ...]。
 
@@ -89,7 +92,13 @@ class RawProcessor:
         某一組失敗時退回逐張處理，才知道是哪幾張失敗。
 
         on_progress(完成張數, 總張數, 照片路徑)：沒有 .xmp 的每張回報一次，已有 .xmp 的每組回報一次。
+        errors：給一個 list 的話，失敗的照片會以 (照片路徑, 原因) 加進去，讓畫面直接顯示原因
+        （從桌面捷徑或雙擊啟動時沒有主控台，只印出來的話使用者看不到）。
         """
+        def fail(path, reason):
+            if errors is not None:
+                errors.append((path, reason))
+
         results = [None] * len(items)
         groups = {}          # 星等 -> [(索引, 照片路徑, .xmp 路徑)]
         done = 0
@@ -101,11 +110,15 @@ class RawProcessor:
             xmp_path = f"{base_name}.xmp"
             if ext.lower() not in SIDECAR_EXTENSIONS:
                 results[index] = (False, rating)
+                fail(image_path, f"Lightroom 不讀 {ext} 旁邊的 .xmp")
             elif os.path.exists(xmp_path):
                 groups.setdefault(rating, []).append((index, image_path, xmp_path))
                 continue
             else:
-                results[index] = (_create_sidecar(xmp_path, rating), rating)
+                ok, error = _create_sidecar(xmp_path, rating)
+                results[index] = (ok, rating)
+                if not ok:
+                    fail(image_path, f"無法建立 .xmp：{error}")
             done += 1
             if on_progress:
                 on_progress(done, total, image_path)
@@ -125,11 +138,15 @@ class RawProcessor:
             elif exiftool_cmd:
                 # 整組失敗時逐張重試，找出是哪幾張壞掉
                 print(f"[ExifTool 錯誤] {rating} 星這組有檔案沒有更新，改逐張處理：{error}")
-                for index, image_path, _ in members:
-                    results[index] = RawProcessor.safe_update_xmp(image_path, items[index][1])
+                for index, image_path, xmp_path in members:
+                    ok, error = _exiftool_set_rating(exiftool_cmd, rating, [xmp_path])
+                    results[index] = (ok, rating)
+                    if not ok:
+                        fail(image_path, f"ExifTool 錯誤：{error or '未知錯誤'}")
             else:
-                for index, _, _ in members:
+                for index, image_path, _ in members:
                     results[index] = (False, rating)
+                    fail(image_path, "已有 .xmp，需要 ExifTool 才能安全修改（安裝方式見 README）")
             done += len(members)
             if on_progress:
                 on_progress(done, total, members[-1][1])
@@ -159,7 +176,10 @@ def _exiftool_set_rating(exiftool_cmd, rating, xmp_paths):
 
 
 def _create_sidecar(xmp_path, rating):
-    """新建只含星等的 .xmp。用 "x" 模式開檔：檢查之後若有別的程式剛好建立了同名 .xmp，寧可失敗也不覆蓋它。"""
+    """
+    新建只含星等的 .xmp，回傳 (是否成功, 錯誤訊息)。
+    用 "x" 模式開檔：檢查之後若有別的程式剛好建立了同名 .xmp，寧可失敗也不覆蓋它。
+    """
     try:
         xmp_content = f"""<x:xmpmeta xmlns:x="adobe:ns:meta/">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -168,7 +188,6 @@ def _create_sidecar(xmp_path, rating):
 </x:xmpmeta>"""
         with open(xmp_path, "x", encoding="utf-8") as f:
             f.write(xmp_content.strip())
-        return True
+        return True, ""
     except Exception as e:
-        print(f"[新建 XMP 失敗] {e}")
-        return False
+        return False, f"{type(e).__name__}: {e}"

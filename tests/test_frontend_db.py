@@ -174,6 +174,23 @@ class TestFrontendDatabase(unittest.TestCase):
         self.assertEqual(self.m.folder_summary(rows),
                          '\u30fb'.join(['共 5 張', '已分析 3', '技術警告 1', '美感優秀 1', '需重新分析 1']))
 
+    def test_xmp_failures_are_summarized_for_the_screen(self):
+        errors = [('C:/a/1.ARW', '需要 ExifTool'), ('C:/a/2.ARW', '需要 ExifTool'), ('C:/a/3.ARW', '磁碟已滿'),
+                  ('C:/a/4.ARW', 'x'), ('C:/a/5.ARW', 'y')]
+        self.assertEqual(self.m.summarize_errors(errors),
+                         ['需要 ExifTool（1.ARW 等 2 張）', '磁碟已滿（3.ARW）', 'x（4.ARW）', '另有 1 種原因'])
+        self.assertEqual(self.m.summarize_errors([('', 'XMP 更新失敗：OSError')]), ['XMP 更新失敗：OSError'])
+
+    def test_xmp_button_reports_reason_without_exiftool(self):
+        self.m.recompute_scores(0.6, str(self.folder))
+        (self.folder / 'a.xmp').write_text('<x:xmpmeta xmlns:x="adobe:ns:meta/"/>', encoding='utf-8')
+        errors = []
+        with mock.patch('raw_processor.shutil.which', return_value=None), mock.patch('builtins.print'):
+            result = self.m.write_xmp_ratings(str(self.folder), errors=errors)
+        self.assertEqual(result, (1, 2, 1))
+        self.assertEqual([Path(p).name for p, _ in errors], ['a.ARW'])
+        self.assertIn('ExifTool', errors[0][1])
+
     def test_progress_callback_reports_every_write(self):
         self.m.recompute_scores(0.6, str(self.folder))
         seen = []

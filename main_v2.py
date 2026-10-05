@@ -787,7 +787,21 @@ def recompute_scores(aesthetic_weight, folder):
     conn.close()
 
 
-def write_xmp_ratings(folder, on_progress=None, only_paths=None):
+def summarize_errors(errors, limit=3):
+    """[(照片路徑, 原因)] → 給畫面顯示的幾行文字：相同原因合併成一行並註明張數，最多 limit 種。"""
+    grouped = {}
+    for path, reason in errors:
+        grouped.setdefault(reason, []).append(os.path.basename(path))
+    lines = []
+    for reason, names in list(grouped.items())[:limit]:
+        where = names[0] if len(names) == 1 else f"{names[0]} 等 {len(names)} 張"
+        lines.append(f"{reason}（{where}）" if names[0] else reason)
+    if len(grouped) > limit:
+        lines.append(f"另有 {len(grouped) - limit} 種原因")
+    return lines
+
+
+def write_xmp_ratings(folder, on_progress=None, only_paths=None, errors=None):
     """
     把目前資料夾 RAW 的星等寫進旁邊的 .xmp（李奇翰的 RawProcessor.update_ratings）。
 
@@ -798,7 +812,7 @@ def write_xmp_ratings(folder, on_progress=None, only_paths=None):
     （60 張 RAW 拉一格就卡 22.7 秒），而且會一直覆蓋使用者在 Lightroom 打的星等。
 
     只寫目前模型版本、已分析的 RAW；星等依資料庫裡目前權重下的綜合分。
-    回傳 (寫入張數, 略過的非 RAW 張數, 失敗張數)。
+    回傳 (寫入張數, 略過的非 RAW 張數, 失敗張數)；errors 給 list 的話，失敗原因以 (照片路徑, 原因) 加進去。
     """
     if only_paths is not None:
         only_paths = {os.path.abspath(p) for p in only_paths}
@@ -823,9 +837,10 @@ def write_xmp_ratings(folder, on_progress=None, only_paths=None):
 
     # 批次寫入：已有 .xmp 的照片同星等一組交給一次 ExifTool（原本每張啟動一次，325 張要將近 2 分鐘）
     try:
-        results = RawProcessor.update_ratings(targets, on_progress)
+        results = RawProcessor.update_ratings(targets, on_progress, errors)
     except Exception as e:
-        print(f"XMP 更新失敗：{e}")
+        if errors is not None:
+            errors.append(("", f"XMP 更新失敗：{type(e).__name__}: {e}"))
         return 0, skipped, len(targets)
     written = sum(1 for ok, _ in results if ok)
     failed = len(targets) - written
@@ -1334,7 +1349,8 @@ class PhotoManagerV2(QWidget):
             if xmp:
                 xmp_note = f"<br><br>XMP 星等：寫入 {xmp[0]} 張 RAW"
                 if xmp[2]:
-                    xmp_note += f"，失敗 {xmp[2]} 張（原因請看主控台）"
+                    xmp_note += f"，失敗 {xmp[2]} 張：" + "<br>".join(
+                        html.escape(line) for line in summarize_errors(self._xmp_errors))
 
             if self._analysis_error:
                 self._set_progress(ok, total, "分析未完整完成")
@@ -1373,7 +1389,7 @@ class PhotoManagerV2(QWidget):
         finally:
             if xmp and (xmp[0] or xmp[2]):
                 self.progress_label.setText(
-                    "已寫入 XMP 星等" if xmp[0] else "XMP 星等寫入失敗，原因請看主控台")
+                    "已寫入 XMP 星等" if xmp[0] else "XMP 星等寫入失敗，原因見分析結果")
             else:
                 self.progress_label.setText("目前處理：—")
             for control, enabled in self._analysis_controls:
@@ -1435,7 +1451,9 @@ class PhotoManagerV2(QWidget):
             self.progress_label.setText(f"目前處理：{os.path.basename(file_path)}")
             QApplication.processEvents()
 
-        return write_xmp_ratings(self.current_folder, on_progress, only_paths=paths)
+        self._xmp_errors = []
+        return write_xmp_ratings(self.current_folder, on_progress, only_paths=paths,
+                                 errors=self._xmp_errors)
 
     def write_xmp(self):
         if not self.current_folder:
@@ -1463,7 +1481,8 @@ class PhotoManagerV2(QWidget):
             QApplication.processEvents()
 
         try:
-            written, skipped, failed = write_xmp_ratings(self.current_folder, on_progress)
+            errors = []
+            written, skipped, failed = write_xmp_ratings(self.current_folder, on_progress, errors=errors)
         finally:
             for control in controls:
                 control.setEnabled(True)
@@ -1478,9 +1497,7 @@ class PhotoManagerV2(QWidget):
             if skipped:
                 message += f"\n略過 {skipped} 張 JPG／PNG／DNG（Lightroom 不讀它們旁邊的 .xmp）。"
             if failed:
-                message += f"\n失敗 {failed} 張，原因請看主控台。"
-                if shutil.which("exiftool") is None:
-                    message += "\n已經有 .xmp 的照片，要安裝 ExifTool 才能更新星等。"
+                message += f"\n失敗 {failed} 張：\n" + "\n".join(summarize_errors(errors))
         QMessageBox.information(self, "寫入 XMP 星等", message)
 
     def weight_changed(self, value):
