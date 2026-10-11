@@ -142,10 +142,48 @@ class TestFrontendDatabase(unittest.TestCase):
 
     # ── 結果面板與資料夾統計 ──────────────────────────────
     def _full_row(self, aes=66.0, tech=94.9, overall=77.6, current=True, analyzed=1,
-                  suggestion='照片品質良好。', issues='', is_best=0):
+                  suggestion='照片品質良好。', issues='', is_best=0, name='p.ARW'):
         version = self.m.MODEL_VERSION if current else '舊版'
-        return ('p.ARW', 'p.ARW', aes, tech, overall, 0.6, 0.4, version, '', suggestion, '', issues,
+        return (name, name, aes, tech, overall, 0.6, 0.4, version, '', suggestion, '', issues,
                 is_best, analyzed)
+
+    def test_result_panel_hides_stars_for_formats_without_xmp(self):
+        """只有相機 RAW 會寫 .xmp；手機的 JPG、HEIC 與 DNG 顯示星等會讓人以為也寫進了 Lightroom。"""
+        raw = self.m.result_html(self._full_row(name='p.ARW'), '')
+        self.assertIn('★★★★★', raw)
+        self.assertIn('寫入 Lightroom 的評等', raw)
+        for name in ('p.jpg', 'IMG_0001.HEIC', 'p.png', 'p.dng'):
+            with self.subTest(name=name):
+                text = self.m.result_html(self._full_row(name=name), '')
+                self.assertNotIn('★', text, '不寫 .xmp 的格式不顯示星等')
+                self.assertIn('此格式不產生 Lightroom 星等', text)
+                self.assertIn('77.6', text, '綜合分照常顯示')
+
+    def test_xmp_button_skips_phone_photos_without_errors(self):
+        """資料夾混了手機照片（HEIC、PNG）時，批次寫入只寫 RAW，其餘略過，不算失敗也不報錯。"""
+        extra = ('IMG_0001.HEIC', 'shot.png')
+        for name in extra:
+            (self.folder / name).write_bytes(FAKE_RAW)
+            self.m.insert_photo(name, str(self.folder / name))
+        con = sqlite3.connect(self.m.DB_PATH)
+        for name in extra:
+            con.execute(
+                'UPDATE photos_v2 SET aesthetic_score=60, technical_score=80, overall_score=68, '
+                'model_version=?, analyzed=1 WHERE file_path=?',
+                (self.m.MODEL_VERSION, os.path.abspath(self.folder / name)))
+        con.commit()
+        con.close()
+        self.m.recompute_scores(0.6, str(self.folder))
+
+        errors = []
+        with mock.patch('builtins.print'):
+            written, skipped, failed = self.m.write_xmp_ratings(str(self.folder), errors=errors)
+
+        self.assertEqual((written, skipped, failed), (2, 4, 0), '寫 a.ARW、b.NEF；JPG、DNG、HEIC、PNG 略過')
+        self.assertEqual(errors, [], '略過不是失敗，不可以出現錯誤訊息')
+        self.assertEqual(self._xmp_files(), ['a.xmp', 'b.xmp'])
+        for name in extra:
+            self.assertEqual((self.folder / name).read_bytes(), FAKE_RAW, f'{name} 被改到了')
 
     def test_result_panel_is_compact(self):
         text = self.m.result_html(self._full_row(), 'ILCE-7M3')

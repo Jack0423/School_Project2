@@ -289,8 +289,10 @@ def result_html(row, shooting_text):
     系統建議／建議）。改成：分數與等級同一行，用顏色分好壞；建議只留一句；
     量測附註條列，沒有就不顯示；最佳照片只在「是」的時候顯示。
     """
-    (_, _, aes, tech, overall, _, _, version, _, suggestion, _, issues, is_best, analyzed) = row
+    (_, file_path, aes, tech, overall, _, _, version, _, suggestion, _, issues, is_best, analyzed) = row
     blocks = []
+    # 只有相機 RAW 會寫 .xmp（write_xmp_ratings）；JPG、HEIC、DNG 等顯示星等會讓人以為也會寫進 Lightroom
+    writes_rating = os.path.splitext(file_path)[1].lower() in SIDECAR_EXTENSIONS
 
     if not analyzed:
         blocks.append("<b>尚未分析</b><br>請按「分析目前照片」或「開始批次分析」。")
@@ -306,8 +308,10 @@ def result_html(row, shooting_text):
         table_rows = (
             ("美感", f"{aes:.1f}", grade, grade_color),
             ("技術", f"{tech:.1f}", "警告" if warn else "正常", _WARN if warn else _GOOD),
-            ("綜合", f"{overall:.1f}", "★" * stars + "☆" * (5 - stars), _GOLD),
+            ("綜合", f"{overall:.1f}", "★" * stars + "☆" * (5 - stars) if writes_rating else "", _GOLD),
         )
+        rating_note = ("星等＝寫入 Lightroom 的評等" if writes_rating
+                       else "此格式不產生 Lightroom 星等（只有相機 RAW 檔會寫入）")
         cells = "".join(
             f'<tr><td>{name}</td><td align="right">&nbsp;&nbsp;{value}&nbsp;&nbsp;</td>'
             f'<td style="color:{color or "#EAEAEA"};">{html.escape(mark)}</td></tr>'
@@ -315,7 +319,7 @@ def result_html(row, shooting_text):
         head = f'<span style="color:{_GOLD};">★ 這個資料夾目前的最佳照片</span><br>' if is_best else ""
         blocks.append(
             head + f'<table cellspacing="0" cellpadding="1">{cells}</table>'
-            f'<span style="color:{_DIM}; font-size:12px;">星等＝寫入 Lightroom 的評等</span>')
+            f'<span style="color:{_DIM}; font-size:12px;">{rating_note}</span>')
 
         verdict = "建議檢視" if warn else "建議保留"
         blocks.append(f'<b style="color:{_WARN if warn else _GOOD};">{verdict}</b><br>'
@@ -1495,7 +1499,7 @@ class PhotoManagerV2(QWidget):
         else:
             message = f"已寫入 {written} 張 RAW 的星等。"
             if skipped:
-                message += f"\n略過 {skipped} 張 JPG／PNG／DNG（Lightroom 不讀它們旁邊的 .xmp）。"
+                message += f"\n略過 {skipped} 張非相機 RAW 的照片（JPG、PNG、HEIC、DNG 等；Lightroom 不讀它們旁邊的 .xmp）。"
             if failed:
                 message += f"\n失敗 {failed} 張：\n" + "\n".join(summarize_errors(errors))
         QMessageBox.information(self, "寫入 XMP 星等", message)
