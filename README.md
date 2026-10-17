@@ -250,7 +250,8 @@ main_v2.non_best_paths(result)   # 每組除了建議保留以外的照片
 
 分組本體與 `photo_grouping.py`／`run_bursts.py` 是同一份程式。325 張 ARW 實測相似 86 組、連拍 97 組，各約 0.16 秒，
 與命令列對同一次分析分出的組、建議保留的照片完全相同。加入這個功能前分析的照片沒有特徵，第一次按「開始批次分析」會補跑。
-前台的分組畫面（宋宇宸）還在做，接法見 [docs/grouping_handoff.md](docs/grouping_handoff.md)。
+前台的分組畫面（宋宇宸，`grouping_view.py`）：按「相似照片分組」，可切換相似／連拍，每組標出建議保留的一張，
+「選取每組非最佳」只做選取，刪除仍走「刪除選取」的確認流程。說明與驗證見 [docs/grouping_ui_delivery.md](docs/grouping_ui_delivery.md)。
 `run_batch.py` 遇到讀不了的照片格式（例如 iPhone 的 `.heic`）會列出略過的張數；支援哪些格式以 `ai_inference.IMAGE_EXTENSIONS` 為準，前台掃資料夾也請用這一份。
 
 門檻 0.85 與 5 秒是 2026-09-23 用 325 張 ARW 的人工標註校準出來的：原本的 0.9 / 2 秒，抽查 15 張未分組照片有 11 張其實有同伴被漏掉；放寬後救回 9 張，且重新標註「有變動的 35 組」沒有出現錯誤合併（連同第一輪的 105 組，共 140 組人工判斷、0 組誤分）。詳見 `photo_grouping.py` 與 `burst_metadata.py` 的常數說明。
@@ -433,6 +434,7 @@ ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + �
 batch_pipeline.py       批次分析核心：平行解碼 + 單一推論消費者（宋宇宸）
 qt_batch_worker.py      前台的背景分析執行緒，同時讀拍攝時間（宋宇宸）
 photo_grouping.py       以特徵餘弦相似度分組、挑建議保留（前台與命令列共用）
+grouping_view.py        前台的分組視窗（宋宇宸）
 burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別
 raw_processor.py        XMP 星等寫入（李奇翰）
 shooting_info.py        讀拍攝資訊（相機、ISO、快門……），前台結果面板用
@@ -497,5 +499,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 269 個測試。
+目前共 270 個測試。
 細節見 [tests/README.md](tests/README.md)。
