@@ -301,7 +301,26 @@ class TestHeic(unittest.TestCase):
         pixels = np.stack([x * 2, y * 2, np.full_like(x, 128)], axis=-1).astype(np.uint8)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / '測試.HEIC'
-            Image.fromarray(pixels).save(path, format='HEIF', quality=95)
+            # 編碼只用於建立測試資料；隔離原生函式庫，主程序仍驗證正式解碼器。
+            import subprocess
+            import sys
+            encoder = """
+import sys
+import numpy as np
+from PIL import Image
+import pillow_heif
+pillow_heif.register_heif_opener()
+y, x = np.mgrid[0:96, 0:128]
+pixels = np.stack([x * 2, y * 2, np.full_like(x, 128)], axis=-1).astype(np.uint8)
+Image.fromarray(pixels).save(sys.argv[1], format='HEIF', quality=95)
+"""
+            encoded = subprocess.run(
+                [sys.executable, '-X', 'faulthandler', '-c', encoder, str(path)],
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=30,
+            )
+            self.assertEqual(encoded.returncode, 0,
+                             f'HEIF 測試影像建立失敗：{encoded.stderr}')
             decoded = ai.load_image(str(path))
         self.assertEqual(decoded.shape, pixels.shape)
         self.assertEqual(decoded.dtype, np.uint8)

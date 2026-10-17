@@ -63,6 +63,8 @@ with tempfile.TemporaryDirectory() as tmp:
             app.processEvents()
             time.sleep(.002)
         assert window._analysis_thread is None, 'Thread failed to finish'
+    # Verify restoration of an explicitly disabled control.
+    window.group_btn.setEnabled(False)
     with patch.object(gui, 'update_analysis', checked_update):
         window.analyze_all()
         first = window._analysis_thread
@@ -82,6 +84,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert len(set(threads)) == 1, 'Concurrent inference'
         assert window.analyze_all_btn.isEnabled() and window.weight_slider.isEnabled()
         assert not window.group_btn.isEnabled(), 'Prior disabled state lost'
+        window.group_btn.setEnabled(True)
         assert all(gui.get_photo(p)[13] == 1 for p in paths)
         assert Path(window._analysis_output).exists()
         # Single-image analysis uses the same asynchronous owner.
@@ -89,7 +92,9 @@ with tempfile.TemporaryDirectory() as tmp:
         with patch.object(window, 'show_result'):
             window.analyze_current()
             assert window._analysis_thread is not None
+            assert not window.group_btn.isEnabled(), 'Grouping enabled during analysis'
             wait_done()
+        assert window.group_btn.isEnabled(), 'Prior enabled state lost'
         # Capture times for burst grouping are read beside the analysis and stored on the GUI thread,
         # before completion; photos already read are not read again.
         stored = []

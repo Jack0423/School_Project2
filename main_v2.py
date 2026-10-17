@@ -13,10 +13,11 @@ import ai_inference
 from raw_processor import RawProcessor, SIDECAR_EXTENSIONS, RATING_THRESHOLDS
 from shooting_info import read_shooting_info, format_shooting_info
 from qt_batch_worker import BatchAnalysisThread
+from grouping_view import GroupingDialog
 from photo_grouping import DEFAULT_THRESHOLD, group_records
 from burst_metadata import DEFAULT_MAX_SECONDS, build_burst_check, camera_identity, parse_capture_time
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton, QListWidget,
+    QApplication, QWidget, QLabel, QPushButton, QListWidget, QListWidgetItem,
     QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QMessageBox, QCheckBox,
     QProgressBar, QFrame, QComboBox, QAbstractItemView, QLineEdit
 )
@@ -950,8 +951,8 @@ class PhotoManagerV2(QWidget):
         self.xmp_btn = QPushButton("寫入 XMP 星等")
         self.xmp_btn.setToolTip("把目前資料夾 RAW 的星等寫進旁邊的 .xmp 給 Lightroom 讀取，不會修改原始照片")
         self.group_btn = QPushButton("相似照片分組")
-        self.group_btn.setEnabled(False)
-        self.group_btn.setToolTip("預留宋宇宸的相似照片分組 JSON 接口")
+        self.group_btn.clicked.connect(self.show_groups)
+        self.group_btn.setToolTip("顯示相似照片或連拍候選，並選取每組非最佳照片")
 
         top_buttons = QHBoxLayout()
         top_buttons.addWidget(self.folder_btn)
@@ -1202,6 +1203,42 @@ class PhotoManagerV2(QWidget):
         self.preview.setText("請選擇照片")
         self.file_label.setText("目前尚未選取照片")
 
+    def show_groups(self):
+        if self._analysis_thread is not None:
+            return
+        if not self.current_folder:
+            QMessageBox.information(self, "照片分組", "請先選擇資料夾並完成批次分析。")
+            return
+        dialog = GroupingDialog(
+            lambda mode: group_folder(self.current_folder, mode=mode),
+            non_best_paths, self._preview_group_photo,
+            self._select_group_paths, self,
+        )
+        # 開啟期間不允許操作主視窗；重開時重新讀取目前資料夾與權重。
+        dialog.exec()
+
+    def _preview_group_photo(self, path):
+        if path not in self.photo_paths.values():
+            return
+        item = QListWidgetItem(os.path.basename(path))
+        item.setData(Qt.ItemDataRole.UserRole, path)
+        self.show_photo(item)
+
+    def _select_group_paths(self, paths):
+        # 清除篩選，確保目標照片都在清單中。只選取，交由既有流程確認刪除。
+        self.filter_combo.setCurrentIndex(0)
+        self.search_edit.clear()
+        self.refresh_list()
+        targets = {os.path.abspath(path) for path in paths}
+        self.photo_list.clearSelection()
+        for index in range(self.photo_list.count()):
+            item = self.photo_list.item(index)
+            path = item.data(Qt.ItemDataRole.UserRole)
+            item.setSelected(bool(path and os.path.abspath(path) in targets))
+        count = len(self.photo_list.selectedItems())
+        self.progress_label.setText(
+            f"已選取 {count} 張組內非最佳照片；請確認後使用現有刪除按鈕。")
+
     @staticmethod
     def clean_name(text):
         for prefix in ("★ ", "△ ", "✓ ", "↻ "):
@@ -1210,10 +1247,10 @@ class PhotoManagerV2(QWidget):
         return text
 
     def show_photo(self, item):
-        file_name = self.clean_name(item.text())
-        file_path = self.photo_paths.get(file_name)
+        file_path = item.data(Qt.ItemDataRole.UserRole)
         if not file_path:
             return
+        file_name = os.path.basename(file_path)
 
         self.current_file_path = file_path
         self.current_image_buffer = None
@@ -1285,7 +1322,7 @@ class PhotoManagerV2(QWidget):
 
         self._analysis_thread = worker
         self._analysis_output = str(output)
-        # 記下原本的啟用狀態，結束後照原樣恢復（例如「相似照片分組」本來就是停用的）
+        # 記下原本的啟用狀態，結束後照原樣恢復
         self._analysis_controls = [
             (control, control.isEnabled()) for control in (
                 self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
@@ -1560,7 +1597,9 @@ class PhotoManagerV2(QWidget):
             else:
                 display = f"✓ {file_name}"
 
-            self.photo_list.addItem(display)
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, file_path)
+            self.photo_list.addItem(item)
 
         if len(rows) == len(all_rows):
             self.count_label.setText(f"照片數量：{len(rows)} 張")
@@ -1591,7 +1630,8 @@ class PhotoManagerV2(QWidget):
         count = 0
         for i in range(self.photo_list.count()):
             item = self.photo_list.item(i)
-            row = self.rows_by_name.get(self.clean_name(item.text()))
+            path = item.data(Qt.ItemDataRole.UserRole)
+            row = self.rows_by_name.get(os.path.basename(path)) if path else None
             if (row and row[13] and row[7] == MODEL_VERSION
                     and row[3] is not None and float(row[3]) < TECH_THRESHOLD):
                 item.setSelected(True)
@@ -1606,8 +1646,10 @@ class PhotoManagerV2(QWidget):
     def delete_selected(self):
         if self._analysis_thread is not None:
             return
-        names = [self.clean_name(item.text()) for item in self.photo_list.selectedItems()]
-        paths = [self.photo_paths[name] for name in names if name in self.photo_paths]
+        paths = [item.data(Qt.ItemDataRole.UserRole)
+                 for item in self.photo_list.selectedItems()
+                 if item.data(Qt.ItemDataRole.UserRole)]
+        names = [os.path.basename(path) for path in paths]
         if not paths:
             self.progress_label.setText("請先選取要刪除的照片（可以按住 Ctrl 或 Shift 多選）")
             return
