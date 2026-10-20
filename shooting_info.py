@@ -7,7 +7,7 @@
   * 沒有 ExifTool 時，JPG／TIFF 改用 PIL 讀 EXIF；RAW 讀不到，回報需要 ExifTool。
   * 截圖、經過編修輸出的 JPG／PNG 常常完全沒有 EXIF，這時回傳空的結果，由畫面說明。
 
-ExifTool 每次啟動約 0.2 秒，所以結果依路徑快取，同一張照片只讀一次。
+ExifTool 每次啟動約 0.2 秒，所以結果依路徑、檔案大小及修改時間快取；照片變更時重新讀取。
 路徑以 UTF-8 參數檔傳給 ExifTool：直接放在命令列時，Windows 上的中文檔名會變成亂碼。
 """
 import json
@@ -69,8 +69,14 @@ def read_shooting_info(path):
     原因只在完全讀不到時才有，例如 RAW 但沒有安裝 ExifTool。
     """
     path = os.path.abspath(path)
-    if path in _cache:
-        return _cache[path]
+    try:
+        stat = os.stat(path)
+        signature = (stat.st_size, stat.st_mtime_ns)
+    except OSError:
+        signature = None
+    cached = _cache.get(path)
+    if cached is not None and cached[0] == signature:
+        return cached[1:]
 
     exe = shutil.which("exiftool")
     ext = os.path.splitext(path)[1].lower()
@@ -87,7 +93,7 @@ def read_shooting_info(path):
     except Exception as e:
         info, reason = {}, f"讀取失敗：{e}"
 
-    _cache[path] = (info, reason)
+    _cache[path] = (signature, info, reason)
     return info, reason
 
 

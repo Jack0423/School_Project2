@@ -250,8 +250,10 @@ main_v2.non_best_paths(result)   # 每組除了建議保留以外的照片
 
 分組本體與 `photo_grouping.py`／`run_bursts.py` 是同一份程式。325 張 ARW 實測相似 86 組、連拍 97 組，各約 0.16 秒，
 與命令列對同一次分析分出的組、建議保留的照片完全相同。加入這個功能前分析的照片沒有特徵，第一次按「開始批次分析」會補跑。
-前台的分組畫面（宋宇宸，`grouping_view.py`）：按「相似照片分組」，可切換相似／連拍，每組標出建議保留的一張，
-「選取每組非最佳」只做選取，刪除仍走「刪除選取」的確認流程。說明與驗證見 [docs/grouping_ui_delivery.md](docs/grouping_ui_delivery.md)。
+前台的分組整理（`grouping_review_view.py`）：按「相似照片分組」在主視窗逐組比較，保留現有大圖與分析結果。
+點縮圖看大圖，點保留／丟掉標籤改決定；可多留照片。← → 看照片、空白鍵切換保留、Enter／↓ 下一組、↑ 上一組、Esc 離開。
+預設相似模式；進階勾選「只看連拍（同相機、5 秒內）」。整理時停用權重滑桿；退出後改權重、重進會重設選擇。
+底部統計所有組的決定，移到資源回收筒前會列出張數與檔名，整組丟掉另有警告。RAW 縮圖在背景讀內嵌 JPEG，依方向轉正並快取。說明與驗證見 [docs/grouping_ui_delivery.md](docs/grouping_ui_delivery.md)。
 `run_batch.py` 遇到讀不了的照片格式（例如 iPhone 的 `.heic`）會列出略過的張數；支援哪些格式以 `ai_inference.IMAGE_EXTENSIONS` 為準，前台掃資料夾也請用這一份。
 
 門檻 0.85 與 5 秒是 2026-09-23 用 325 張 ARW 的人工標註校準出來的：原本的 0.9 / 2 秒，抽查 15 張未分組照片有 11 張其實有同伴被漏掉；放寬後救回 9 張，且重新標註「有變動的 35 組」沒有出現錯誤合併（連同第一輪的 105 組，共 140 組人工判斷、0 組誤分）。詳見 `photo_grouping.py` 與 `burst_metadata.py` 的常數說明。
@@ -277,6 +279,14 @@ python tools/preview_viewer.py [照片路徑]    # 唯讀預覽，可滾輪縮�
 - 星等依綜合分，所以會隨權重改變；批次工具用模型端的預設權重（美感 0.6）。
 
 ### 桌面前台（童小席）
+
+照片分析會記錄檔案大小與最後修改時間。同一路徑的照片被覆寫後，舊分數、分組特徵及拍攝資訊會失效，
+清單標上「↻」，結果面板顯示「檔案已變更」；按「開始批次分析」即可補跑。
+舊資料庫沒有檔案紀錄時，首次開啟會顯示「檔案版本待確認」，需要重新分析一次。
+這是快速檢查；若內容改變但大小及修改時間都維持原值，無法辨識。
+
+刪除結果分別列出已移走的照片張數與未能移走的檔案。RAW 已移走但 `.xmp` 移除失敗時，
+會列出 XMP 檔名與原因，照片仍計入成功移走的張數。
 
 ```bash
 python main_v2.py                        # 照片管理主程式
@@ -434,7 +444,9 @@ ai_inference.py         推論核心：雙模型評分 + OpenCV 技術量測 + �
 batch_pipeline.py       批次分析核心：平行解碼 + 單一推論消費者（宋宇宸）
 qt_batch_worker.py      前台的背景分析執行緒，同時讀拍攝時間（宋宇宸）
 photo_grouping.py       以特徵餘弦相似度分組、挑建議保留（前台與命令列共用）
-grouping_view.py        前台的分組視窗（宋宇宸）
+grouping_review.py      不依賴 Qt 的保留／丟掉狀態與推薦說明
+grouping_review_view.py 主視窗逐組整理介面
+grouping_thumbnails.py  背景縮圖、RAW 內嵌 JPEG 與方向修正
 burst_metadata.py       連拍判定：EXIF 拍攝時間與相機識別
 raw_processor.py        XMP 星等寫入（李奇翰）
 shooting_info.py        讀拍攝資訊（相機、ISO、快門……），前台結果面板用
@@ -499,5 +511,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前共 270 個測試。
+目前 unittest discovery 共 291 項；分組 Qt 整合測試另在隔離程序執行。
 細節見 [tests/README.md](tests/README.md)。

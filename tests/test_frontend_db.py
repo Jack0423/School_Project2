@@ -298,6 +298,97 @@ class TestFrontendDatabase(unittest.TestCase):
 
 
     # ── 預設權重、篩選與搜尋 ──────────────────────────────
+    def test_replaced_photo_invalidates_scores_features_and_metadata(self):
+        path = str(self.folder / 'a.ARW')
+        self.m.update_analysis(path, dict(aesthetic_score=80, technical_score=90,
+                                         feature_vector=[1.0] * 1280), .6)
+        self.m.store_capture_metadata({path: {'Model': 'OLD'}})
+        (self.folder / 'a.ARW').write_bytes(b'replacement photo')
+        with mock.patch('main_v2.shutil.which', return_value=None):
+            self.assertIn(path, self.m.analysis_candidates([path]))
+        row = self.m.get_photo(path)
+        self.assertEqual(row[13], 0)
+        self.assertEqual(row[8], '檔案已變更')
+        self.assertEqual(row[2:5], (None, None, None))
+        self.assertEqual(row[12], 0)
+        with sqlite3.connect(self.m.DB_PATH) as con:
+            self.assertEqual(con.execute('SELECT feature, capture_meta FROM photos_v2 WHERE file_path=?',
+                                         (path,)).fetchone(), (None, None))
+        self.assertIn(path, self.m.group_folder(str(self.folder))['not_ready'])
+        with mock.patch.object(self.m.RawProcessor, 'update_ratings', return_value=[]) as write:
+            self.m.write_xmp_ratings(str(self.folder), only_paths=[path])
+        self.assertEqual(write.call_args.args[0], [])
+        self.assertIn('檔案已變更', self.m.result_html(row, ''))
+        self.assertEqual(self.m.filter_rows([row], 5), [row])
+        self.assertIn('需重新分析 1', self.m.folder_summary([row]))
+
+    def test_same_size_replacement_detected_by_mtime(self):
+        path = self.folder / 'a.ARW'
+        old = path.stat()
+        path.write_bytes(b'x' * old.st_size)
+        os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns + 1000000000))
+        self.assertFalse(self.m.get_photo(str(path))[13])
+
+    def test_unchanged_file_keeps_analysis(self):
+        path = str(self.folder / 'a.ARW')
+        self.m.insert_photo('a.ARW', path)
+        self.assertTrue(self.m.get_photo(path)[13])
+
+    def test_missing_fingerprint_requires_one_reanalysis(self):
+        path = str(self.folder / 'a.ARW')
+        with sqlite3.connect(self.m.DB_PATH) as con:
+            con.execute('UPDATE photos_v2 SET file_size=NULL, file_mtime_ns=NULL WHERE file_path=?', (path,))
+        row = self.m.get_photo(path)
+        self.assertEqual(row[8], '檔案版本待確認')
+        self.assertFalse(row[13])
+        self.m.update_analysis(path, dict(aesthetic_score=70, technical_score=80), .6)
+        self.assertTrue(self.m.get_photo(path)[13])
+
+    def test_changed_during_analysis_rejects_result(self):
+        path = str(self.folder / 'a.ARW')
+        signature = self.m.file_signature(path)
+        Path(path).write_bytes(b'changed during inference')
+        with self.assertRaisesRegex(ValueError, '分析期間照片已變更'):
+            self.m.update_analysis(path, dict(aesthetic_score=70, technical_score=80), .6,
+                                   expected_signature=signature)
+        self.assertFalse(self.m.get_photo(path)[13])
+
+    def test_failed_sidecar_delete_reports_partial_success(self):
+        path = str(self.folder / 'a.ARW')
+        sidecar = self.folder / 'a.xmp'
+        sidecar.write_text('Lightroom edits', encoding='utf-8')
+        trash, _ = self._fake_trash(fail={'a.xmp'})
+        moved, failed = self.m.delete_photos([path], trash=trash)
+        self.assertEqual(moved, 1)
+        self.assertEqual(failed[0][0], 'a.xmp')
+        self.assertIn('照片已移到資源回收筒', failed[0][1])
+        self.assertEqual(sidecar.read_text(encoding='utf-8'), 'Lightroom edits')
+        self.assertIsNone(self.m.get_photo(path))
+
+    def test_sidecar_exception_reports_partial_success(self):
+        path = str(self.folder / 'a.ARW')
+        (self.folder / 'a.xmp').write_text('edits', encoding='utf-8')
+        def trash(p):
+            if p.endswith('.xmp'):
+                raise OSError('locked')
+            Path(p).unlink()
+            return True, ''
+        moved, failed = self.m.delete_photos([path], trash=trash)
+        self.assertEqual(moved, 1)
+        self.assertIn('locked', failed[0][1])
+
+    def test_failed_photo_delete_leaves_sidecar_untouched(self):
+        path = str(self.folder / 'a.ARW')
+        sidecar = self.folder / 'a.xmp'
+        sidecar.write_text('edits', encoding='utf-8')
+        trash = mock.Mock(return_value=(False, 'locked'))
+        moved, failed = self.m.delete_photos([path], trash=trash)
+        self.assertEqual(moved, 0)
+        self.assertEqual(failed, [('a.ARW', 'locked')])
+        trash.assert_called_once_with(path)
+        self.assertEqual(sidecar.read_text(encoding='utf-8'), 'edits')
+        self.assertIsNotNone(self.m.get_photo(path))
+
     def test_default_weight_matches_model_side(self):
         import ai_inference
         self.assertEqual(self.m.DEFAULT_AESTHETIC_WEIGHT, ai_inference.AESTHETIC_WEIGHT,

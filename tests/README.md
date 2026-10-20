@@ -79,3 +79,19 @@ python -m unittest tests.test_evaluate_photo -v
   強制製造出「技術分很高但影像確實有問題」的情境。
 
 新增測試後值得重跑一次變異測試，確認新測試真的有攔截能力。
+
+## 主視窗分組整理（2026-10-19）
+
+- `test_grouping_review.py`：保留預設值、換推薦、多張保留、還原調整、整組丟掉、三種推薦說明與技術分差提示。
+- `test_grouping_thumbnails.py`：JPG、HEIC、RAW 內嵌 JPEG／bitmap、EXIF／LibRaw 直拍方向、無內嵌縮圖 fallback。
+- `test_grouping_ui.py`：在隔離 Qt 程序執行 `qt_grouping_check.py`，驗證主視窗模式、鍵盤、刪除兩階段確認／取消、精確傳入丟掉路徑、重分組、失敗原因、重新進入更新推薦，以及背景縮圖去重與跨資料夾失效。刪除函式全部 patch，不實際刪檔。
+- 真實照片效能與截圖：`python tools/capture_grouping_review.py PHOTO_FOLDER OUTPUT_DIR`，需 40 張 ARW 與模型權重。使用臨時資料庫與照片連結，透過現有批次分析產生分數與特徵，不讀 JSONL 作為分組來源。會建立實際 Qt 畫面的自動操作影片、截圖與量測 JSON。
+
+## 2026-10-20 整合補強
+
+- 保留檔案大小／修改時間失效檢查與 XMP 刪除部分成功的回報。
+- 整理畫面確認刪除後，重新核對每張照片（包含保留照片）的檔案狀態與分數；發現變動或無法讀取資料庫時不執行刪除。
+- 縮圖快取依檔案狀態失效，過期背景結果不能蓋掉新結果；重新進入整理模式會清快取。
+- Qt 整合增加整理畫面維持視窗高度、XMP 寫入期間主按鈕鎖定、失敗照片保留預覽及 XMP 失敗訊息的檢查。
+- Windows 測試請使用一致的 UTF-8 設定，例如 `python -X utf8 -m unittest discover -s tests -t .`。
+  受限執行環境可能無法啟動 ExifTool（本次遇到 WinError 623）；這與正常終端機的執行結果必須分開記錄。

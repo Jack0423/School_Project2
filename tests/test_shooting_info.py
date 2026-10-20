@@ -88,6 +88,15 @@ class TestShootingInfo(unittest.TestCase):
             si.read_shooting_info(str(path))
         self.assertEqual(read.call_count, 1)
 
+    def test_replaced_photo_refreshes_cached_metadata(self):
+        path = write_jpg(self.dir / 'camera.jpg')
+        with mock.patch('shooting_info.shutil.which', return_value='exiftool'), \
+                mock.patch('shooting_info._read_with_exiftool', side_effect=[{'ISO': 100}, {'ISO': 800}]) as read:
+            self.assertEqual(si.read_shooting_info(str(path))[0]['ISO'], 100)
+            Path(path).write_bytes(b'replacement')
+            self.assertEqual(si.read_shooting_info(str(path))[0]['ISO'], 800)
+        self.assertEqual(read.call_count, 2)
+
     def test_partial_info_only_shows_what_exists(self):
         # 實例：手機截圖只有拍攝時間
         text = si.format_shooting_info({'DateTimeOriginal': '2025:10:21 18:00:23'})

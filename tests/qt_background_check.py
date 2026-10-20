@@ -18,6 +18,7 @@ fake.AESTHETIC_EXCELLENT_THRESHOLD = 60
 fake.AESTHETIC_WEIGHT = .6
 fake.LAST_ERROR = None
 fake.model_version = lambda: 'test-model'
+fake.aesthetic_grade = lambda score: '優秀' if score > 60 else '普通'
 fake.combine_scores = lambda a,b,aesthetic_weight: a*aesthetic_weight+b*(1-aesthetic_weight)
 threads = []
 main_id = threading.get_ident()
@@ -43,6 +44,7 @@ with tempfile.TemporaryDirectory() as tmp:
     paths = [str(Path(tmp)/f'{i}.jpg') for i in range(3)]
     conn = gui.get_conn()
     for path in paths:
+        Path(path).write_bytes(b'test photo')
         conn.execute('INSERT INTO photos_v2 (file_path,file_name) VALUES (?,?)',(path,Path(path).name))
     conn.commit()
     conn.close()
@@ -54,9 +56,9 @@ with tempfile.TemporaryDirectory() as tmp:
     timer.timeout.connect(lambda: ticks.append(time.monotonic()))
     timer.start(10)
     original_update = gui.update_analysis
-    def checked_update(*args):
+    def checked_update(*args, **kwargs):
         assert threading.get_ident() == main_id, 'SQLite update off GUI thread'
-        return original_update(*args)
+        return original_update(*args, **kwargs)
     def wait_done():
         deadline = time.monotonic()+8
         while window._analysis_thread is not None and time.monotonic() < deadline:
@@ -133,6 +135,7 @@ with tempfile.TemporaryDirectory() as tmp:
         many = [str(Path(tmp)/f'many{i}.jpg') for i in range(20)]
         conn = gui.get_conn()
         for path in many:
+            Path(path).write_bytes(b'test photo')
             conn.execute('INSERT INTO photos_v2 (file_path,file_name) VALUES (?,?)',(path,Path(path).name))
         conn.commit()
         conn.close()

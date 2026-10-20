@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,7 +14,7 @@ import ai_inference
 from raw_processor import RawProcessor, SIDECAR_EXTENSIONS, RATING_THRESHOLDS
 from shooting_info import read_shooting_info, format_shooting_info
 from qt_batch_worker import BatchAnalysisThread
-from grouping_view import GroupingDialog
+from grouping_review_view import GroupReviewView
 from photo_grouping import DEFAULT_THRESHOLD, group_records
 from burst_metadata import DEFAULT_MAX_SECONDS, build_burst_check, camera_identity, parse_capture_time
 from PyQt6.QtWidgets import (
@@ -296,7 +297,8 @@ def result_html(row, shooting_text):
     writes_rating = os.path.splitext(file_path)[1].lower() in SIDECAR_EXTENSIONS
 
     if not analyzed:
-        blocks.append("<b>尚未分析</b><br>請按「分析目前照片」或「開始批次分析」。")
+        reason = row[8] if row[8] in ("檔案已變更", "檔案版本待確認") else "尚未分析"
+        blocks.append(f"<b>{reason}</b><br>請按「分析目前照片」或「開始批次分析」。")
     elif version != MODEL_VERSION:
         blocks.append("<b>舊版模型的分數</b><br>不納入目前的排序，請重新分析。")
     else:
@@ -343,7 +345,8 @@ def folder_summary(rows):
     parts = [f"共 {len(rows)} 張", f"已分析 {len(current)}"]
     warn = sum(r[3] < TECH_THRESHOLD for r in current)
     excellent = sum(ai_inference.aesthetic_grade(r[2]) == "優秀" for r in current)
-    old = sum(1 for r in rows if r[13] and r[7] != MODEL_VERSION)
+    old = sum(1 for r in rows if (r[13] and r[7] != MODEL_VERSION)
+              or r[8] in ("檔案已變更", "檔案版本待確認"))
     if warn:
         parts.append(f"技術警告 {warn}")
     if excellent:
@@ -365,7 +368,8 @@ FILTERS = (
     ("美感待加強", lambda r: _is_current(r) and ai_inference.aesthetic_grade(r[2]) == "待加強"),
     ("技術警告（△）", lambda r: _is_current(r) and r[3] < TECH_THRESHOLD),
     ("尚未分析", lambda r: not r[13]),
-    ("需重新分析（↻）", lambda r: bool(r[13]) and r[7] != MODEL_VERSION),
+    ("需重新分析（↻）", lambda r: (bool(r[13]) and r[7] != MODEL_VERSION)
+     or r[8] in ("檔案已變更", "檔案版本待確認")),
 )
 
 
@@ -388,30 +392,34 @@ def delete_photos(paths, trash=_move_to_trash):
 
     相機原生 RAW 旁邊的 .xmp（「寫入 XMP 星等」建立的）一起移走；
     刪 JPG 時不動 .xmp——RAW+JPG 同檔名時，那個 .xmp 屬於 RAW。
-    回傳 (移走的張數, [(檔名, 失敗原因), ...])。
+    回傳 (移走的照片張數, [(照片或 XMP 檔名, 失敗原因), ...])。
     """
     moved = 0
     failed = []
-    conn = get_conn()
-    cur = conn.cursor()
+    with closing(get_conn()) as conn, conn:
+        for path in paths:
+            path = os.path.abspath(path)
+            try:
+                ok, reason = trash(path)
+            except Exception as exc:
+                ok, reason = False, str(exc)
+            if not ok:
+                failed.append((os.path.basename(path), reason))
+                continue
 
-    for path in paths:
-        path = os.path.abspath(path)
-        ok, reason = trash(path)
-        if not ok:
-            failed.append((os.path.basename(path), reason))
-            continue
+            moved += 1
+            conn.execute("DELETE FROM photos_v2 WHERE file_path = ?", (path,))
 
-        moved += 1
-        cur.execute("DELETE FROM photos_v2 WHERE file_path = ?", (path,))
-
-        base, ext = os.path.splitext(path)
-        sidecar = base + ".xmp"
-        if ext.lower() in SIDECAR_EXTENSIONS and os.path.exists(sidecar):
-            trash(sidecar)
-
-    conn.commit()
-    conn.close()
+            base, ext = os.path.splitext(path)
+            sidecar = base + ".xmp"
+            if ext.lower() in SIDECAR_EXTENSIONS and os.path.exists(sidecar):
+                try:
+                    ok, reason = trash(sidecar)
+                except Exception as exc:
+                    ok, reason = False, str(exc)
+                if not ok:
+                    failed.append((os.path.basename(sidecar),
+                                   "照片已移到資源回收筒，但 XMP 未能移走：" + reason))
     return moved, failed
 
 
@@ -448,7 +456,8 @@ def init_db():
     #   feature       1280 維特徵（float32，5 KB／張），和同一列的 model_version 綁在一起
     #   capture_meta  連拍判定用的 EXIF 欄位（JSON）；NULL＝還沒讀過，{}＝讀過但沒有
     columns = {row[1] for row in cur.execute("PRAGMA table_info(photos_v2)")}
-    for name, kind in (("feature", "BLOB"), ("capture_meta", "TEXT")):
+    for name, kind in (("file_size", "INTEGER"), ("file_mtime_ns", "INTEGER"),
+                       ("feature", "BLOB"), ("capture_meta", "TEXT")):
         if name not in columns:
             cur.execute(f"ALTER TABLE photos_v2 ADD COLUMN {name} {kind}")
     conn.commit()
@@ -456,17 +465,59 @@ def init_db():
 
 
 def insert_photo(file_name, file_path):
+    file_path = os.path.abspath(file_path)
+    signature = file_signature(file_path)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        INSERT OR IGNORE INTO photos_v2 (file_name, file_path)
-        VALUES (?, ?)
-    """, (file_name, os.path.abspath(file_path)))
+        INSERT OR IGNORE INTO photos_v2 (file_name, file_path, file_size, file_mtime_ns)
+        VALUES (?, ?, ?, ?)
+    """, (file_name, file_path, *(signature or (None, None))))
     conn.commit()
     conn.close()
+    sync_photo_files([file_path])
+
+
+def file_signature(path):
+    """快速辨識原路徑的照片是否被覆寫；不讀取整張 RAW。"""
+    try:
+        stat = os.stat(path)
+        return stat.st_size, stat.st_mtime_ns
+    except OSError:
+        return None
+
+
+def sync_photo_files(paths=None, folder=None):
+    """檔案變更或舊紀錄沒有指紋時，讓分數、特徵與拍攝資訊失效。"""
+    targets = None if paths is None else {os.path.abspath(p) for p in paths}
+    folder = None if folder is None else os.path.abspath(folder)
+    with closing(get_conn()) as conn, conn:
+        query = "SELECT file_path, file_size, file_mtime_ns FROM photos_v2"
+        if targets is None:
+            rows = conn.execute(query).fetchall()
+        else:
+            rows = [row for path in targets
+                    for row in conn.execute(query + " WHERE file_path=?", (path,))]
+        for path, size, mtime in rows:
+            if targets is not None and path not in targets:
+                continue
+            if folder is not None and os.path.dirname(path) != folder:
+                continue
+            signature = file_signature(path)
+            if signature is not None and signature == (size, mtime):
+                continue
+            status = "檔案版本待確認" if size is None or mtime is None else "檔案已變更"
+            conn.execute("""
+                UPDATE photos_v2 SET aesthetic_score=NULL, technical_score=NULL,
+                    overall_score=NULL, model_version='', status=?, suggestion='',
+                    action='', technical_issues='', is_best=0, analyzed=0,
+                    feature=NULL, capture_meta=NULL, file_size=?, file_mtime_ns=?
+                WHERE file_path=?
+            """, (status, *(signature or (None, None)), path))
 
 
 def get_photo(file_path):
+    sync_photo_files([file_path])
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -488,6 +539,8 @@ def get_photos_in_folder(folder):
         return []
 
     folder = os.path.abspath(folder)
+
+    sync_photo_files(folder=folder)
 
     conn = get_conn()
     cur = conn.cursor()
@@ -520,8 +573,12 @@ def get_photos_in_folder(folder):
     conn.close()
     return rows
 
-def update_analysis(file_path, result, aesthetic_weight):
+def update_analysis(file_path, result, aesthetic_weight, expected_signature=None):
     """status 只表示技術狀態；美感優秀另外由 aesthetic_score 判斷。"""
+    signature = file_signature(file_path)
+    if expected_signature is not None and signature != expected_signature:
+        sync_photo_files([file_path])
+        raise ValueError("分析期間照片已變更，請重新分析")
     aesthetic_score = float(result["aesthetic_score"])
     technical_score = float(result["technical_score"])
 
@@ -557,12 +614,13 @@ def update_analysis(file_path, result, aesthetic_weight):
         SET aesthetic_score = ?, technical_score = ?, overall_score = ?,
             aesthetic_weight = ?, technical_weight = ?, model_version = ?,
             status = ?, suggestion = ?, action = ?, technical_issues = ?,
-            feature = ?, analyzed = 1
+            feature = ?, analyzed = 1, file_size = ?, file_mtime_ns = ?
         WHERE file_path = ?
     """, (
         aesthetic_score, technical_score, overall_score,
         aesthetic_weight, technical_weight, MODEL_VERSION,
         status, suggestion, action, technical_issues, feature,
+        *(signature or (None, None)),
         os.path.abspath(file_path)
     ))
 
@@ -611,6 +669,8 @@ def analysis_candidates(paths):
       * 分數是目前版本、但沒有分組用的特徵：加入分組功能前分析的，第一次會整個資料夾重跑一次
       * 有 ExifTool、但還沒讀過拍攝時間：分析時還沒裝 ExifTool 的話，不重跑就永遠缺這幾張的連拍資料
     """
+    paths = list(paths)
+    sync_photo_files(paths)
     exiftool = shutil.which("exiftool") is not None
     conn = get_conn()
     rows = {
@@ -639,7 +699,8 @@ GROUP_MODES = ("similar", "burst")
 def group_folder(folder, mode="similar", threshold=DEFAULT_THRESHOLD,
                  max_seconds=DEFAULT_MAX_SECONDS, camera_match="model"):
     """
-    相似照片分組（F06），給前台呼叫。只讀資料庫，不跑模型、不呼叫 ExifTool，可以直接在主執行緒呼叫。
+    相似照片分組（F06），給前台呼叫。先核對檔案狀態、讓過期分析失效，再讀取分組資料。
+    不跑模型、不呼叫 ExifTool，可以直接在主執行緒呼叫。
 
     mode：
       "similar"  內容相似度達門檻（預設 0.85）就同一組，而且必須和組內每一張都達門檻
@@ -664,6 +725,7 @@ def group_folder(folder, mode="similar", threshold=DEFAULT_THRESHOLD,
         raise ValueError(f"mode 必須是 {GROUP_MODES} 其中之一")
 
     folder = os.path.abspath(folder)
+    sync_photo_files(folder=folder)
     conn = get_conn()
     rows = conn.execute(
         "SELECT file_path, file_name, overall_score, analyzed, model_version, feature, capture_meta "
@@ -874,12 +936,18 @@ class PhotoManagerV2(QWidget):
         init_db()
 
         self._analysis_thread = None
+        self._xmp_busy = False
         self._analysis_summary = None
         self._analysis_error = None
         self.photo_paths = {}
         self.current_folder = None
         self.current_file_path = None
         self.current_image_buffer = None
+        self._group_count = 0
+        self._pending_analysis_count = 0
+        self._workflow_refresh_timer = QTimer(self)
+        self._workflow_refresh_timer.setSingleShot(True)
+        self._workflow_refresh_timer.timeout.connect(self._refresh_workflow_state)
         self.aesthetic_weight = DEFAULT_AESTHETIC_WEIGHT
 
         self.setWindowTitle("智慧照片篩選與管理系統")
@@ -952,18 +1020,26 @@ class PhotoManagerV2(QWidget):
         self.xmp_btn.setToolTip("把目前資料夾 RAW 的星等寫進旁邊的 .xmp 給 Lightroom 讀取，不會修改原始照片")
         self.group_btn = QPushButton("相似照片分組")
         self.group_btn.clicked.connect(self.show_groups)
-        self.group_btn.setToolTip("顯示相似照片或連拍候選，並選取每組非最佳照片")
+        self.group_btn.setToolTip("在主視窗逐組比較照片，選擇保留或丟掉")
 
+        self.primary_btn = QPushButton("選擇照片資料夾")
+        self.primary_btn.setStyleSheet(
+            "QPushButton { background: #23754b; color: white; padding: 11px 22px; }"
+            "QPushButton:hover { background: #2b8a59; }"
+            "QPushButton:disabled { background: #303a34; color: #aaaaaa; }")
+        self.primary_btn.clicked.connect(self._run_primary_action)
+        self.analyze_all_btn.hide()
+        self.group_btn.hide()
         top_buttons = QHBoxLayout()
+        top_buttons.addWidget(self.primary_btn)
         top_buttons.addWidget(self.folder_btn)
         top_buttons.addWidget(self.analyze_current_btn)
-        top_buttons.addWidget(self.analyze_all_btn)
+        top_buttons.addWidget(self.group_btn)
         top_buttons.addWidget(self.xmp_btn)
         # 期末報告寫的「分析後自動寫入 XMP」。預設不勾：平常不在照片資料夾產生檔案
         self.auto_xmp_check = QCheckBox("分析後自動寫入 XMP")
         self.auto_xmp_check.setToolTip("勾選後，每次分析完會把剛分析的 RAW 星等寫進旁邊的 .xmp")
         top_buttons.addWidget(self.auto_xmp_check)
-        top_buttons.addWidget(self.group_btn)
         top_buttons.addStretch()
 
         # 右上：排序偏好（權重滑桿）。原本放在右下，移上來讓分析結果有更多空間
@@ -1117,6 +1193,13 @@ class PhotoManagerV2(QWidget):
         root.addLayout(body, 1)
         root.addLayout(bottom)
 
+        self.group_review = GroupReviewView(
+            self, lambda mode: group_folder(self.current_folder, mode=mode),
+            lambda path: tuple(get_photo(path)[2:5]), self._preview_group_photo,
+            lambda paths: delete_photos(paths),
+            lambda: recompute_scores(self.aesthetic_weight, self.current_folder),
+            body, left_panel, center, bottom, file_signature)
+
         self.folder_btn.clicked.connect(self.choose_folder)
         self.photo_list.itemClicked.connect(self.show_photo)
         self.photo_list.itemSelectionChanged.connect(self._selection_changed)
@@ -1133,6 +1216,82 @@ class PhotoManagerV2(QWidget):
         self.delete_btn.clicked.connect(self.delete_selected)
         QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.photo_list,
                   activated=self.delete_selected)
+
+        self._update_primary_action()
+
+    def _refresh_workflow_state(self, grouping=None, update_status=True):
+        """Refresh expensive folder facts only when photo data changes.
+
+        List search, sorting and filtering consume these cached facts without
+        grouping photos or checking analysis metadata again.
+        """
+        self._workflow_refresh_timer.stop()
+        if self.current_folder:
+            paths = [row[1] for row in get_photos_in_folder(self.current_folder)]
+            self._pending_analysis_count = len(analysis_candidates(paths))
+            if grouping is None:
+                grouping = group_folder(self.current_folder, "similar")
+            self._group_count = len(grouping['groups'])
+        else:
+            self._group_count = self._pending_analysis_count = 0
+        self._update_primary_action()
+        if update_status and self._analysis_thread is None and not self._xmp_busy:
+            self._update_group_status()
+
+    def _update_group_status(self, grouping=None):
+        count = len(grouping['groups']) if grouping is not None else self._group_count
+        burst = grouping is not None and grouping.get('mode') == 'burst'
+        kind = "連拍" if burst else "相似"
+        if count:
+            self.progress_label.setText(
+                f"找到 {count} 組{kind}照片" +
+                ("，可逐組比較與選擇保留" if self.group_review.active else
+                 ("，可先整理已分析的照片" if self._pending_analysis_count else
+                  f"，按『整理 {count} 組相似照片』開始")))
+        else:
+            self.progress_label.setText(f"目前沒有可整理的{kind}照片組")
+
+    def _update_primary_action(self):
+        """One visible next step, derived from actual folder and review state."""
+        self.group_btn.hide()
+        self.folder_btn.setText("更換資料夾")
+        self.folder_btn.setVisible(bool(self.current_folder))
+        self.primary_btn.setEnabled(self._analysis_thread is None and not self._xmp_busy)
+        if self._xmp_busy:
+            self._primary_action = None
+            self.primary_btn.setText("寫入 XMP 中…")
+        elif self._analysis_thread is not None:
+            self._primary_action = None
+            self.primary_btn.setText("分析中…")
+        elif getattr(self, 'group_review', None) and self.group_review.active:
+            self._primary_action = 'review'
+            self.primary_btn.setText("完成整理，返回照片清單")
+        elif not self.current_folder:
+            self._primary_action = 'folder'
+            self.primary_btn.setText("選擇照片資料夾")
+        else:
+            pending = self._pending_analysis_count
+            if pending:
+                self._primary_action = 'analyze'
+                self.primary_btn.setText(f"分析這 {pending} 張照片")
+                # Partial failures must not prevent reviewing already analyzed groups.
+                ready_groups = self._group_count
+                self.group_btn.setText(f"先整理已分析的 {ready_groups} 組")
+                self.group_btn.setVisible(ready_groups > 0)
+            else:
+                count = self._group_count
+                self._primary_action = 'review' if count else 'folder'
+                self.primary_btn.setText(f"整理 {count} 組相似照片" if count else
+                                         "沒有相似照片，選擇其他資料夾")
+
+    def _run_primary_action(self):
+        self._update_primary_action()
+        if self._primary_action == 'folder':
+            self.choose_folder()
+        elif self._primary_action == 'analyze':
+            self.analyze_all()
+        elif self._primary_action == 'review':
+            self.show_groups()
 
     # ── 下方進度列與提示 ──────────────────────────────────
     # 所有地方都經過這三個方法。原本各處自己設定，留下幾個不會更新的情況：
@@ -1160,6 +1319,7 @@ class PhotoManagerV2(QWidget):
         if not folder:
             return
 
+        self.group_review.folder_changed()
         self.current_folder = os.path.abspath(folder)
         self.current_file_path = None
         self.current_image_buffer = None
@@ -1197,6 +1357,7 @@ class PhotoManagerV2(QWidget):
         recompute_scores(self.aesthetic_weight, self.current_folder)
 
         self.folder_label.setText(self.current_folder)
+        self._refresh_workflow_state()
         self.refresh_list()
         self.result_label.setText("尚未選取照片")
         self.preview.clearPhoto()
@@ -1204,18 +1365,15 @@ class PhotoManagerV2(QWidget):
         self.file_label.setText("目前尚未選取照片")
 
     def show_groups(self):
-        if self._analysis_thread is not None:
+        if self._analysis_thread is not None or self._xmp_busy:
             return
         if not self.current_folder:
             QMessageBox.information(self, "照片分組", "請先選擇資料夾並完成批次分析。")
             return
-        dialog = GroupingDialog(
-            lambda mode: group_folder(self.current_folder, mode=mode),
-            non_best_paths, self._preview_group_photo,
-            self._select_group_paths, self,
-        )
-        # 開啟期間不允許操作主視窗；重開時重新讀取目前資料夾與權重。
-        dialog.exec()
+        if self.group_review.active:
+            self.group_review.exit()
+        else:
+            self.group_review.enter()
 
     def _preview_group_photo(self, path):
         if path not in self.photo_paths.values():
@@ -1223,21 +1381,6 @@ class PhotoManagerV2(QWidget):
         item = QListWidgetItem(os.path.basename(path))
         item.setData(Qt.ItemDataRole.UserRole, path)
         self.show_photo(item)
-
-    def _select_group_paths(self, paths):
-        # 清除篩選，確保目標照片都在清單中。只選取，交由既有流程確認刪除。
-        self.filter_combo.setCurrentIndex(0)
-        self.search_edit.clear()
-        self.refresh_list()
-        targets = {os.path.abspath(path) for path in paths}
-        self.photo_list.clearSelection()
-        for index in range(self.photo_list.count()):
-            item = self.photo_list.item(index)
-            path = item.data(Qt.ItemDataRole.UserRole)
-            item.setSelected(bool(path and os.path.abspath(path) in targets))
-        count = len(self.photo_list.selectedItems())
-        self.progress_label.setText(
-            f"已選取 {count} 張組內非最佳照片；請確認後使用現有刪除按鈕。")
 
     @staticmethod
     def clean_name(text):
@@ -1271,7 +1414,7 @@ class PhotoManagerV2(QWidget):
     # 模型只在一條背景執行緒循序推論；進度用 Qt 訊號回到主執行緒，資料庫也只在主執行緒寫。
     # 實測 325 張 ARW：84 秒 → 39.7 秒，分析期間畫面最長只停 0.26 秒。
     def analyze_current(self):
-        if self._analysis_thread is not None:
+        if self._analysis_thread is not None or self._xmp_busy or self.group_review.active:
             return
         if not self.current_file_path:
             self.result_label.setText("請先選擇一張照片。")
@@ -1279,7 +1422,7 @@ class PhotoManagerV2(QWidget):
         self._start_analysis([self.current_file_path])
 
     def analyze_all(self):
-        if self._analysis_thread is not None:
+        if self._analysis_thread is not None or self._xmp_busy or self.group_review.active:
             return
         if not self.current_folder or not self.photo_paths:
             self.result_label.setText("請先選擇照片資料夾。")
@@ -1297,11 +1440,14 @@ class PhotoManagerV2(QWidget):
     def _start_analysis(self, paths):
         if self._analysis_thread is not None:
             return
+        paths = list(paths)
+        sync_photo_files(paths)
         # 權重與資料夾在開始時固定；同一時間只有一個分析，
         # 模型不會被同時呼叫，ai_inference.LAST_ERROR 也不會互相覆蓋。
         self._analysis_paths = {str(Path(path).resolve()): os.path.abspath(path)
                                 for path in paths}
         self._analysis_weight = self.aesthetic_weight
+        self._analysis_signatures = {path: file_signature(path) for path in self._analysis_paths.values()}
         self._analysis_folder = self.current_folder
         self._analysis_summary = None
         self._analysis_error = None
@@ -1321,11 +1467,12 @@ class PhotoManagerV2(QWidget):
             return
 
         self._analysis_thread = worker
+        self._update_primary_action()
         self._analysis_output = str(output)
         # 記下原本的啟用狀態，結束後照原樣恢復
         self._analysis_controls = [
             (control, control.isEnabled()) for control in (
-                self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
+                self.primary_btn, self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
                 self.xmp_btn, self.weight_slider, self.delete_btn,
                 self.select_warn_btn, self.group_btn, self.auto_xmp_check,
             )
@@ -1352,8 +1499,11 @@ class PhotoManagerV2(QWidget):
         if record.get("ok"):
             path = self._analysis_paths.get(record["path"], record["path"])
             try:
-                update_analysis(path, record, self._analysis_weight)
+                update_analysis(path, record, self._analysis_weight,
+                                expected_signature=self._analysis_signatures.get(path))
                 self._analysis_ok_paths.append(path)
+            except ValueError as exc:
+                self._analysis_failures.append((name, str(exc)))
             except Exception as exc:
                 self._analysis_error = f"資料庫寫入失敗：{exc}"
         else:
@@ -1364,7 +1514,8 @@ class PhotoManagerV2(QWidget):
     def _analysis_capture_metadata(self, metadata):
         # 主執行緒：連拍分組要的拍攝時間，分析時在背景讀到的
         try:
-            store_capture_metadata(metadata)
+            store_capture_metadata({path: item for path, item in metadata.items()
+                                    if file_signature(path) == self._analysis_signatures.get(path)})
         except Exception as exc:
             print(f"[拍攝時間] 寫入資料庫失敗：{exc}")
 
@@ -1438,6 +1589,13 @@ class PhotoManagerV2(QWidget):
             self.cancel_btn.setEnabled(False)
             self._analysis_thread = None
             worker.deleteLater()
+            try:
+                self._refresh_workflow_state(
+                    update_status=not cancelled and not self._analysis_error)
+            except Exception as exc:
+                self._update_primary_action()
+                self.progress_label.setText(f"分組統計更新失敗：{exc}")
+
             if self._close_after_cancel:
                 QTimer.singleShot(0, self.close)
 
@@ -1450,6 +1608,10 @@ class PhotoManagerV2(QWidget):
         self.progress_label.setText("正在取消，手上這張做完就停…")
 
     def closeEvent(self, event):
+        if self._xmp_busy:
+            event.ignore()
+            self.progress_label.setText("正在寫入 XMP，完成後即可關閉視窗。")
+            return
         if self._analysis_thread is None:
             event.accept()
             return
@@ -1497,6 +1659,8 @@ class PhotoManagerV2(QWidget):
                                  errors=self._xmp_errors)
 
     def write_xmp(self):
+        if self._analysis_thread is not None or self._xmp_busy or self.group_review.active:
+            return
         if not self.current_folder:
             self.result_label.setText("請先選擇照片資料夾。")
             return
@@ -1510,10 +1674,13 @@ class PhotoManagerV2(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        controls = (self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
+        controls = (self.primary_btn, self.group_btn, self.folder_btn, self.analyze_current_btn, self.analyze_all_btn,
                     self.xmp_btn, self.weight_slider, self.delete_btn, self.select_warn_btn,
                     self.auto_xmp_check)
-        for control in controls:
+        controls = [(control, control.isEnabled()) for control in controls]
+        self._xmp_busy = True
+        self._update_primary_action()
+        for control, _ in controls:
             control.setEnabled(False)
 
         def on_progress(done, total, file_path):
@@ -1525,8 +1692,10 @@ class PhotoManagerV2(QWidget):
             errors = []
             written, skipped, failed = write_xmp_ratings(self.current_folder, on_progress, errors=errors)
         finally:
-            for control in controls:
-                control.setEnabled(True)
+            self._xmp_busy = False
+            for control, enabled in controls:
+                control.setEnabled(enabled)
+            self._update_primary_action()
 
         self._set_progress(1, 1, "XMP 寫入完成")
         self.progress_label.setText("目前處理：—")
@@ -1552,6 +1721,9 @@ class PhotoManagerV2(QWidget):
 
         if self.current_folder:
             recompute_scores(self.aesthetic_weight, self.current_folder)
+            # Score ordering can affect grouping. Refresh once after adjustment,
+            # never from list refreshes or for each intermediate slider value.
+            self._workflow_refresh_timer.start(250)
             self.refresh_list()
             if self.current_file_path:
                 self.show_result(self.current_file_path)
@@ -1562,6 +1734,7 @@ class PhotoManagerV2(QWidget):
 
         if not self.current_folder:
             self.count_label.setText("照片數量：0 張")
+            self._update_primary_action()
             return
 
         _, key_index = SORT_KEYS[self.sort_combo.currentIndex()]
@@ -1584,7 +1757,8 @@ class PhotoManagerV2(QWidget):
             self.photo_paths[file_name] = file_path
 
             if analyzed == 0:
-                display = file_name
+                display = (f"↻ {file_name}" if row[8] in ("檔案已變更", "檔案版本待確認")
+                           else file_name)
             elif model_version != MODEL_VERSION:
                 display = f"↻ {file_name}"
             elif is_best == 1:
@@ -1605,6 +1779,8 @@ class PhotoManagerV2(QWidget):
             self.count_label.setText(f"照片數量：{len(rows)} 張")
         else:
             self.count_label.setText(f"照片數量：顯示 {len(rows)} 張／共 {len(all_rows)} 張")
+
+        self._update_primary_action()
 
     def _update_sort_order_text(self):
         by_name = SORT_KEYS[self.sort_combo.currentIndex()][1] is None
@@ -1644,7 +1820,7 @@ class PhotoManagerV2(QWidget):
             self.progress_label.setText("目前資料夾沒有技術警告的照片")
 
     def delete_selected(self):
-        if self._analysis_thread is not None:
+        if self._analysis_thread is not None or self._xmp_busy or self.group_review.active:
             return
         paths = [item.data(Qt.ItemDataRole.UserRole)
                  for item in self.photo_list.selectedItems()
@@ -1679,13 +1855,14 @@ class PhotoManagerV2(QWidget):
 
         # 刪掉的可能是 ★，重新決定目前資料夾的最佳照片
         recompute_scores(self.aesthetic_weight, self.current_folder)
+        self._refresh_workflow_state()
         self.refresh_list()
 
         message = f"已移到資源回收筒：{moved} 張。"
         if failed:
-            message += f"\n失敗 {len(failed)} 張：\n" + "\n".join(
+            message += f"\n未能移走 {len(failed)} 個檔案（含 XMP）：\n" + "\n".join(
                 f"{name}：{reason}" for name, reason in failed[:8])
-        self.progress_label.setText("目前處理：—")
+        self._update_group_status()
         QMessageBox.information(self, "刪除照片", message)
 
     def show_result(self, file_path):
