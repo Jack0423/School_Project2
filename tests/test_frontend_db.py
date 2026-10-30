@@ -287,6 +287,28 @@ class TestFrontendDatabase(unittest.TestCase):
         best = [r[0] for r in self.m.get_photos_in_folder(str(self.folder)) if r[12] == 1]
         self.assertEqual(best, ['d.dng'], '刪掉 ★ 之後要重新挑最佳照片')
 
+    def test_permanent_delete_removes_photo_sidecar_and_record(self):
+        # 記憶卡沒有資源回收筒，使用者確認後才走這條：照片與 RAW 的 .xmp 真的刪掉
+        (self.folder / 'a.xmp').write_text('a 的星等', encoding='utf-8')
+        moved, failed = self.m.delete_photos([str(self.folder / 'a.ARW')], permanent=True)
+        self.assertEqual((moved, failed), (1, []))
+        self.assertFalse((self.folder / 'a.ARW').exists())
+        self.assertFalse((self.folder / 'a.xmp').exists())
+        self.assertIsNone(self.m.get_photo(str(self.folder / 'a.ARW')))
+        moved, failed = self.m.delete_photos([str(self.folder / 'a.ARW')], permanent=True)
+        self.assertEqual(moved, 0)
+        self.assertIn('無法刪除', failed[0][1])
+        self.assertIn('已永久刪除：1 張', self.m.delete_result_message(1, [], True))
+        self.assertIn('已移到資源回收筒：1 張', self.m.delete_result_message(1, []))
+
+    @unittest.skipUnless(os.name == 'nt', '磁碟類型只在 Windows 判斷')
+    def test_no_trash_drive_by_drive_type(self):
+        self.assertIsNone(self.m.no_trash_drive(str(self.folder)))
+        for kind, expected in [(2, 'K:'), (4, 'K:'), (3, None)]:
+            with mock.patch('ctypes.windll.kernel32.GetDriveTypeW', return_value=kind) as get:
+                self.assertEqual(self.m.no_trash_drive(r'K:\DCIM\100MSDCF'), expected)
+            get.assert_called_once_with('K:\\')
+
     def test_failed_delete_keeps_photo_and_record(self):
         trash, _ = self._fake_trash(fail={'b.NEF'})
         moved, failed = self.m.delete_photos([str(self.folder / 'b.NEF')], trash=trash)

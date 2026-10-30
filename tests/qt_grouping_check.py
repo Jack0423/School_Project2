@@ -374,6 +374,58 @@ class GroupingUiChecks(unittest.TestCase):
         with patch.object(QMessageBox, 'exec'):
             self.assertIsNone(self.view.ask_unseen(2, 3, 1))
 
+    def test_card_delete_back_never_deletes(self):
+        with patch.object(self.view, 'trash_drive', return_value='K:'), patch.object(
+                self.view, 'confirm_permanent', return_value=False) as confirm, patch.object(
+                gui, 'delete_photos') as delete, patch.object(gui.QMessageBox, 'question') as question:
+            self.view.update_summary()
+            self.assertTrue(self.view.remove.text().startswith('永久刪除'))
+            self.view.delete_discarded()
+        confirm.assert_called_once_with(self.window, 'K:', 1)
+        question.assert_not_called()
+        delete.assert_not_called()
+
+    def test_card_delete_confirmed_is_permanent(self):
+        expected = self.view.review.discard_paths()
+        with patch.object(self.view, 'trash_drive', return_value='K:'), patch.object(
+                self.view, 'confirm_permanent', return_value=True), patch.object(
+                gui, 'delete_photos', return_value=(1, [])) as delete, patch.object(
+                gui.QMessageBox, 'information') as info:
+            self.view.delete_discarded()
+        delete.assert_called_once_with(expected, permanent=True)
+        self.assertIn('已永久刪除：1 張', info.call_args.args[2])
+
+    def test_card_delete_from_photo_list(self):
+        self.view.exit()
+        self.window.photo_list.selectAll()
+        for agree in (False, True):
+            with patch.object(gui, 'no_trash_drive', return_value='K:'), patch.object(
+                    gui, 'confirm_permanent_delete', return_value=agree) as confirm, patch.object(
+                    gui, 'delete_photos', return_value=(0, [])) as delete, patch.object(
+                    gui.QMessageBox, 'question') as question, patch.object(gui.QMessageBox, 'information'):
+                self.window.photo_list.selectAll()
+                self.window.delete_selected()
+            confirm.assert_called_once()
+            question.assert_not_called()
+            if agree:
+                self.assertTrue(delete.call_args.kwargs['permanent'])
+            else:
+                delete.assert_not_called()
+
+    def test_permanent_dialog_defaults_to_back(self):
+        from PyQt6.QtCore import QTimer
+        for label, expected in [('返回', False), ('永久刪除', True)]:
+            texts = []
+            def click():
+                box = app.activeModalWidget()
+                buttons = box.findChildren(gui.QPushButton)
+                texts[:] = [b.text() for b in buttons]
+                self.assertEqual(box.defaultButton().text(), '返回')
+                next(b for b in buttons if b.text().startswith(label)).click()
+            QTimer.singleShot(0, click)
+            self.assertEqual(gui.confirm_permanent_delete(self.window, 'K:', 3), expected)
+            self.assertEqual(sorted(texts), sorted(['返回', '永久刪除 3 張']))
+
     def test_failed_delete_preserves_current_photo(self):
         self.window.current_file_path = self.paths[0]
         with patch.object(gui, 'delete_photos', return_value=(0, [('甲.jpg', 'locked')])), patch.object(

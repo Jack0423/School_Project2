@@ -386,14 +386,68 @@ def _move_to_trash(path):
     return ok, "" if ok else "無法移到資源回收筒（檔案可能不存在或正在使用中）"
 
 
-def delete_photos(paths, trash=_move_to_trash):
+def _delete_permanently(path):
+    """永久刪除，無法還原。只用在沒有資源回收筒的磁碟，而且使用者已經確認過。"""
+    try:
+        os.remove(path)
+        return True, ""
+    except OSError as exc:
+        return False, f"無法刪除（{exc.strerror or exc}）"
+
+
+def no_trash_drive(path):
     """
-    把照片移到資源回收筒，並刪掉它們在資料庫裡的紀錄。不會永久刪除。
+    照片所在的磁碟沒有資源回收筒時，回傳磁碟代號（例如 "K:"），否則回傳 None。
+
+    Windows 的記憶卡、隨身碟（DRIVE_REMOVABLE）與網路磁碟（DRIVE_REMOTE）沒有資源回收筒，
+    移到資源回收筒會一張一張失敗。macOS 的外接磁碟有自己的垃圾桶，一律回傳 None。
+    """
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    drive = os.path.splitdrive(os.path.abspath(path))[0]
+    if not drive:
+        return None
+    kind = ctypes.windll.kernel32.GetDriveTypeW(drive + "\\")
+    return drive if kind in (2, 4) else None
+
+
+def confirm_permanent_delete(parent, drive, count):
+    """沒有資源回收筒的磁碟：預設返回，使用者明確按下「永久刪除」才回傳 True。"""
+    box = QMessageBox(QMessageBox.Icon.Warning, "刪除照片",
+                      f"這個磁碟（{drive}）沒有資源回收筒，刪除後無法復原，共 {count} 張。\n"
+                      "RAW 旁邊的 .xmp 也會一起刪除。\n\n"
+                      "想保留還原的機會，可以先用檔案總管把照片複製到電腦，"
+                      "再用本程式開啟那個資料夾整理。", parent=parent)
+    back = box.addButton("返回", QMessageBox.ButtonRole.RejectRole)
+    delete = box.addButton(f"永久刪除 {count} 張", QMessageBox.ButtonRole.DestructiveRole)
+    box.setDefaultButton(back)
+    box.setEscapeButton(back)
+    box.exec()
+    return box.clickedButton() is delete
+
+
+def delete_result_message(moved, failed, permanent=False):
+    message = f"{'已永久刪除' if permanent else '已移到資源回收筒'}：{moved} 張。"
+    if failed:
+        message += f"\n未能移走 {len(failed)} 個檔案（含 XMP）：\n" + "\n".join(
+            f"{name}：{reason}" for name, reason in failed[:8])
+    return message
+
+
+def delete_photos(paths, trash=None, permanent=False):
+    """
+    把照片移到資源回收筒，並刪掉它們在資料庫裡的紀錄。
+    permanent=True 時改為永久刪除，只用在沒有資源回收筒的磁碟（見 no_trash_drive），
+    而且必須先經過 confirm_permanent_delete。
 
     相機原生 RAW 旁邊的 .xmp（「寫入 XMP 星等」建立的）一起移走；
     刪 JPG 時不動 .xmp——RAW+JPG 同檔名時，那個 .xmp 屬於 RAW。
     回傳 (移走的照片張數, [(照片或 XMP 檔名, 失敗原因), ...])。
     """
+    if trash is None:
+        trash = _delete_permanently if permanent else _move_to_trash
+    done = "已刪除" if permanent else "已移到資源回收筒"
     moved = 0
     failed = []
     with closing(get_conn()) as conn, conn:
@@ -419,7 +473,7 @@ def delete_photos(paths, trash=_move_to_trash):
                     ok, reason = False, str(exc)
                 if not ok:
                     failed.append((os.path.basename(sidecar),
-                                   "照片已移到資源回收筒，但 XMP 未能移走：" + reason))
+                                   f"照片{done}，但 XMP 未能移走：" + reason))
     return moved, failed
 
 
@@ -946,6 +1000,7 @@ class PhotoManagerV2(QWidget):
         self._analysis_error = None
         self.photo_paths = {}
         self.current_folder = None
+        self._folder_drive = None
         self.current_file_path = None
         self.current_image_buffer = None
         self._group_count = 0
@@ -1201,9 +1256,12 @@ class PhotoManagerV2(QWidget):
         self.group_review = GroupReviewView(
             self, lambda mode: group_folder(self.current_folder, mode=mode),
             lambda path: tuple(get_photo(path)[2:5]), self._preview_group_photo,
-            lambda paths: delete_photos(paths),
+            lambda paths, permanent=False: (delete_photos(paths, permanent=True) if permanent
+                                            else delete_photos(paths)),
             lambda: recompute_scores(self.aesthetic_weight, self.current_folder),
-            body, left_panel, center, bottom, file_signature)
+            body, left_panel, center, bottom, file_signature,
+            trash_drive=no_trash_drive, confirm_permanent=confirm_permanent_delete,
+            result_message=delete_result_message)
 
         self.folder_btn.clicked.connect(self.choose_folder)
         self.photo_list.itemClicked.connect(self.show_photo)
@@ -1326,6 +1384,7 @@ class PhotoManagerV2(QWidget):
 
         self.group_review.folder_changed()
         self.current_folder = os.path.abspath(folder)
+        self._folder_drive = no_trash_drive(self.current_folder)
         self.current_file_path = None
         self.current_image_buffer = None
         self._set_idle()
@@ -1745,7 +1804,9 @@ class PhotoManagerV2(QWidget):
         _, key_index = SORT_KEYS[self.sort_combo.currentIndex()]
         all_rows = get_photos_in_folder(self.current_folder)
         self.rows_by_name = {row[0]: row for row in all_rows}
-        self.folder_label.setText(f"{self.current_folder}　　{folder_summary(all_rows)}")
+        hint = (f"　　{self._folder_drive} 是記憶卡、隨身碟或網路磁碟：讀取較慢、刪除無法復原，建議先複製到電腦"
+                if self._folder_drive else "")
+        self.folder_label.setText(f"{self.current_folder}　　{folder_summary(all_rows)}{hint}")
         # 批次分析用 photo_paths 決定要分析哪些照片，所以放整個資料夾，不受篩選影響
         self.photo_paths.update({row[0]: row[1] for row in all_rows})
         rows = filter_rows(sort_rows(all_rows, key_index, self.sort_descending),
@@ -1835,19 +1896,25 @@ class PhotoManagerV2(QWidget):
             self.progress_label.setText("請先選取要刪除的照片（可以按住 Ctrl 或 Shift 多選）")
             return
 
-        preview = "\n".join(names[:8]) + (f"\n……共 {len(names)} 張" if len(names) > 8 else "")
-        answer = QMessageBox.question(
-            self, "刪除照片",
-            f"要把這 {len(paths)} 張照片移到資源回收筒嗎？\n"
-            "RAW 旁邊的 .xmp 也會一起移走。之後可以從資源回收筒還原。\n\n"
-            f"{preview}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+        # 記憶卡、隨身碟沒有資源回收筒：先講清楚，不要一張一張失敗
+        drive = no_trash_drive(paths[0])
+        if drive:
+            if not confirm_permanent_delete(self, drive, len(paths)):
+                return
+        else:
+            preview = "\n".join(names[:8]) + (f"\n……共 {len(names)} 張" if len(names) > 8 else "")
+            answer = QMessageBox.question(
+                self, "刪除照片",
+                f"要把這 {len(paths)} 張照片移到資源回收筒嗎？\n"
+                "RAW 旁邊的 .xmp 也會一起移走。之後可以從資源回收筒還原。\n\n"
+                f"{preview}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
-        moved, failed = delete_photos(paths)
+        moved, failed = delete_photos(paths, permanent=bool(drive))
 
         if self.current_file_path and os.path.abspath(self.current_file_path) in {
                 os.path.abspath(p) for p in paths} and not os.path.exists(self.current_file_path):
@@ -1863,12 +1930,8 @@ class PhotoManagerV2(QWidget):
         self._refresh_workflow_state()
         self.refresh_list()
 
-        message = f"已移到資源回收筒：{moved} 張。"
-        if failed:
-            message += f"\n未能移走 {len(failed)} 個檔案（含 XMP）：\n" + "\n".join(
-                f"{name}：{reason}" for name, reason in failed[:8])
         self._update_group_status()
-        QMessageBox.information(self, "刪除照片", message)
+        QMessageBox.information(self, "刪除照片", delete_result_message(moved, failed, bool(drive)))
 
     def show_result(self, file_path):
         row = get_photo(file_path)

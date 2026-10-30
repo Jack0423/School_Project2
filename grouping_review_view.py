@@ -11,12 +11,16 @@ from grouping_thumbnails import ThumbnailCache
 
 class GroupReviewView(QObject):
     def __init__(self, host, load_groups, get_scores, preview, delete, recompute,
-                 body, left_panel, center, bottom, get_signature):
+                 body, left_panel, center, bottom, get_signature,
+                 trash_drive=lambda path: None, confirm_permanent=None, result_message=None):
         super().__init__(host)
         self.host = host
         self.load_groups, self.get_scores = load_groups, get_scores
         self.preview, self.delete, self.recompute = preview, delete, recompute
         self.get_signature = get_signature
+        # 記憶卡、隨身碟沒有資源回收筒：trash_drive 回傳磁碟代號時改走永久刪除的確認
+        self.trash_drive, self.confirm_permanent = trash_drive, confirm_permanent
+        self.result_message = result_message
         self.source_signatures = {}
         self.left_panel = left_panel
         self.review = None
@@ -307,7 +311,9 @@ class GroupReviewView(QObject):
         kept, discarded = self.review.summary() if self.review else (0, 0)
         self.count.setText(f'共 {n} 組\u30fb已看 {len(self.seen)} 組')
         self.summary_label.setText(f'全部 {n} 組：保留 {kept} 張、丟掉 {discarded} 張')
-        self.remove.setText(f'移到資源回收筒（{discarded}）')
+        on_card = bool(self.review and self.review.photos
+                       and self.trash_drive(next(iter(self.review.photos))))
+        self.remove.setText(f"{'永久刪除' if on_card else '移到資源回收筒'}（{discarded}）")
         self.remove.setEnabled(discarded > 0)
         if self.review:
             adjusted = self.review.adjusted_groups()
@@ -364,7 +370,11 @@ class GroupReviewView(QObject):
         names = '\n'.join(Path(p).name for p in paths[:8])
         if len(paths) > 8:
             names += f'\n……共 {len(paths)} 張'
-        if QMessageBox.question(self.host, '刪除照片',
+        drive = self.trash_drive(paths[0])
+        if drive:
+            if not self.confirm_permanent(self.host, drive, len(paths)):
+                return
+        elif QMessageBox.question(self.host, '刪除照片',
                 f'要把這 {len(paths)} 張照片移到資源回收筒嗎？\n'
                 'RAW 旁邊的 .xmp 也會一起移走。之後可以從資源回收筒還原。\n\n' + names,
                 yes | no, no) != yes:
@@ -393,7 +403,7 @@ class GroupReviewView(QObject):
                 '請確認最新照片；需要重新分析時，請先離開整理模式。')
             return
         try:
-            moved, failed = self.delete(paths)
+            moved, failed = self.delete(paths, permanent=True) if drive else self.delete(paths)
         except Exception as exc:
             QMessageBox.warning(self.host, '刪除照片失敗', str(exc))
             return
@@ -408,9 +418,12 @@ class GroupReviewView(QObject):
             self.host.result_label.setText('尚未選取照片')
         # Deleted paths can reappear with new file contents; don't reuse stale images.
         self.cache.clear()
-        message = f'已移到資源回收筒：{moved} 張。'
-        if failed:
-            message += f'\n未能移走 {len(failed)} 個檔案（含 XMP）：\n' + '\n'.join(
-                f'{name}：{reason}' for name, reason in failed[:8])
+        if self.result_message:
+            message = self.result_message(moved, failed, bool(drive))
+        else:
+            message = f'已移到資源回收筒：{moved} 張。'
+            if failed:
+                message += f'\n未能移走 {len(failed)} 個檔案（含 XMP）：\n' + '\n'.join(
+                    f'{name}：{reason}' for name, reason in failed[:8])
         QMessageBox.information(self.host, '刪除照片', message)
         self.reload(after_delete=True)
