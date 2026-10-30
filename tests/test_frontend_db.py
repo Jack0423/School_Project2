@@ -329,6 +329,23 @@ class TestFrontendDatabase(unittest.TestCase):
         os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns + 1000000000))
         self.assertFalse(self.m.get_photo(str(path))[13])
 
+    def test_folder_sync_only_checks_that_folder(self):
+        # 名字開頭相同的資料夾（photos2）與子資料夾都不屬於這個資料夾
+        others = [Path(self.tmp.name) / 'photos2' / 'b.ARW', self.folder / 'sub' / 'c.ARW']
+        for other in others:
+            other.parent.mkdir()
+            other.write_bytes(FAKE_RAW)
+            self.m.insert_photo(other.name, str(other))
+            self.m.update_analysis(str(other), dict(aesthetic_score=70, technical_score=80), .6)
+            other.write_bytes(b'replacement photo')
+        (self.folder / 'a.ARW').write_bytes(b'replacement photo')
+        self.m.get_photos_in_folder(str(self.folder))
+        with sqlite3.connect(self.m.DB_PATH) as con:
+            status = dict(con.execute('SELECT file_path, status FROM photos_v2'))
+        self.assertEqual(status[os.path.abspath(self.folder / 'a.ARW')], '檔案已變更')
+        for other in others:
+            self.assertNotEqual(status[os.path.abspath(other)], '檔案已變更')
+
     def test_unchanged_file_keeps_analysis(self):
         path = str(self.folder / 'a.ARW')
         self.m.insert_photo('a.ARW', path)

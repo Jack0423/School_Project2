@@ -493,7 +493,12 @@ def sync_photo_files(paths=None, folder=None):
     folder = None if folder is None else os.path.abspath(folder)
     with closing(get_conn()) as conn, conn:
         query = "SELECT file_path, file_size, file_mtime_ns FROM photos_v2"
-        if targets is None:
+        if targets is None and folder is not None:
+            # 只讀這個資料夾的紀錄，不掃整個資料庫；子資料夾在下面用 dirname 排除
+            prefix = os.path.join(folder, "")
+            rows = conn.execute(query + " WHERE substr(file_path, 1, ?) = ?",
+                                (len(prefix), prefix)).fetchall()
+        elif targets is None:
             rows = conn.execute(query).fetchall()
         else:
             rows = [row for path in targets
