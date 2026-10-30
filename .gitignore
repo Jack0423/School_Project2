@@ -63,6 +63,9 @@ photos.db-journal
 photos.db-wal
 photos.db-shm
 
+# 個人工作檔（書面報告初稿、核對說明等），不是程式的一部分
+output/
+
 # ── 歸檔的舊程式碼 ────────────────────────────────────
 # _archive/ 內含已停用的舊版腳本，其中 score.py 與 training_labels.csv
 # 帶有個人磁碟路徑（F:\暫存\0223\...），不應外流。
