@@ -50,3 +50,14 @@ class ReviewTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.review.toggle('unknown')
         self.assertEqual(self.review.summary(), (2, 3))
+
+    def test_filter_by_seen_groups(self):
+        self.assertEqual(self.review.discard_paths({1}), ['b', 'c'])
+        self.assertEqual(self.review.discard_paths(set()), [])
+        self.assertEqual(self.review.groups_with_discards(exclude={1}), [2])
+        self.review.toggle('e')
+        self.assertEqual(self.review.groups_with_discards(exclude={1}), [])
+        self.review.toggle('a')
+        self.review.toggle('d')
+        self.assertEqual(self.review.all_discarded_groups({2}), [])
+        self.assertEqual(self.review.all_discarded_groups({1}), [1])

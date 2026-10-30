@@ -18,12 +18,22 @@ class GroupReview:
             raise KeyError(path)
         self.kept.symmetric_difference_update({path})
 
-    def discard_paths(self):
-        return [p for p in self.photos if p not in self.kept]
+    def _groups(self, group_ids):
+        return [g for g in self.groups if group_ids is None or g['group_id'] in group_ids]
 
-    def all_discarded_groups(self):
-        return [g['group_id'] for g in self.groups
+    def discard_paths(self, group_ids=None):
+        """group_ids 為 None 時是全部組，否則只算這些組。"""
+        return [p['path'] for g in self._groups(group_ids) for p in g['photos']
+                if p['path'] not in self.kept]
+
+    def all_discarded_groups(self, group_ids=None):
+        return [g['group_id'] for g in self._groups(group_ids)
                 if not any(self.is_kept(p['path']) for p in g['photos'])]
+
+    def groups_with_discards(self, exclude=()):
+        """有照片要丟、而且不在 exclude 裡的組（用來找還沒看過的組）。"""
+        return [g['group_id'] for g in self.groups if g['group_id'] not in exclude
+                and any(not self.is_kept(p['path']) for p in g['photos'])]
 
     def adjusted_groups(self):
         return {self.by_path[p]['group_id'] for p in self.kept ^ self.defaults}

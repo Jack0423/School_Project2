@@ -298,6 +298,82 @@ class GroupingUiChecks(unittest.TestCase):
         self.assertIn('未能移走 1 個檔案（含 XMP）', info.call_args.args[2])
         self.assertIn('甲.xmp：locked', info.call_args.args[2])
 
+    def add_second_group(self):
+        """丙、丁另成一組；重新進入整理模式後只看過第 1 組。"""
+        for name, aes, tech in [('丙.jpg', 70, 70), ('丁.jpg', 50, 50)]:
+            path = self.folder/name
+            path.write_bytes(b'fixture')
+            self.paths.append(str(path))
+            vector = [0.0]*1280
+            vector[2] = 1.0
+            gui.insert_photo(name, str(path))
+            gui.update_analysis(str(path), dict(aesthetic_score=aes, technical_score=tech,
+                                feature_vector=vector), .6)
+        gui.recompute_scores(.6, str(self.folder))
+        self.view.exit()
+        self.window.show_groups()
+        self.assertEqual(len(self.view.review.groups), 2)
+        self.assertEqual(len(self.view.seen), 1)
+
+    def test_unseen_groups_back_never_deletes(self):
+        self.add_second_group()
+        with patch.object(gui, 'delete_photos') as delete, patch.object(
+                self.view, 'ask_unseen', return_value=None) as ask, patch.object(
+                gui.QMessageBox, 'question') as question:
+            self.view.delete_discarded()
+        ask.assert_called_once_with(1, 1, 1)
+        question.assert_not_called()
+        delete.assert_not_called()
+
+    def test_unseen_groups_delete_only_seen(self):
+        self.add_second_group()
+        everything = self.view.review.discard_paths()
+        seen = self.view.review.discard_paths(self.view.seen)
+        self.assertEqual((len(everything), len(seen)), (2, 1))
+        with patch.object(gui, 'delete_photos', return_value=(1, [])) as delete, patch.object(
+                self.view, 'ask_unseen', return_value='seen'), patch.object(
+                gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), patch.object(
+                gui.QMessageBox, 'information'):
+            self.view.delete_discarded()
+        delete.assert_called_once_with(seen)
+
+    def test_unseen_groups_delete_everything(self):
+        self.add_second_group()
+        everything = self.view.review.discard_paths()
+        with patch.object(gui, 'delete_photos', return_value=(2, [])) as delete, patch.object(
+                self.view, 'ask_unseen', return_value='all'), patch.object(
+                gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), patch.object(
+                gui.QMessageBox, 'information'):
+            self.view.delete_discarded()
+        delete.assert_called_once_with(everything)
+        self.assertEqual(len(everything), 2)
+
+    def test_all_groups_seen_skips_unseen_prompt(self):
+        self.add_second_group()
+        self.view.move_group(1)
+        with patch.object(gui, 'delete_photos') as delete, patch.object(
+                self.view, 'ask_unseen') as ask, patch.object(
+                gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.No):
+            self.view.delete_discarded()
+        ask.assert_not_called()
+        delete.assert_not_called()
+
+    def test_unseen_dialog_three_buttons(self):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QMessageBox
+        for label, expected in [('只刪除已看過的', 'seen'), ('依然全部刪除', 'all'), ('返回', None)]:
+            texts = []
+            def click():
+                box = app.activeModalWidget()
+                buttons = box.findChildren(gui.QPushButton)
+                texts[:] = [b.text() for b in buttons]
+                next(b for b in buttons if b.text().startswith(label)).click()
+            QTimer.singleShot(0, click)
+            self.assertEqual(self.view.ask_unseen(2, 3, 1), expected)
+            self.assertEqual(len(texts), 3)
+        with patch.object(QMessageBox, 'exec'):
+            self.assertIsNone(self.view.ask_unseen(2, 3, 1))
+
     def test_failed_delete_preserves_current_photo(self):
         self.window.current_file_path = self.paths[0]
         with patch.object(gui, 'delete_photos', return_value=(0, [('甲.jpg', 'locked')])), patch.object(

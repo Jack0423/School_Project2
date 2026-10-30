@@ -317,14 +317,46 @@ class GroupReviewView(QObject):
                     f"第 {gid} 組（{group['count']} 張）" + (' · 已調整' if gid in adjusted else ''))
         self.update_cards()
 
+    def ask_unseen(self, unseen_groups, unseen_photos, seen_photos):
+        """回傳 'seen'（只刪已看過的組）、'all'（依然全部刪除）或 None（返回）。"""
+        box = QMessageBox(QMessageBox.Icon.Warning, '還有沒看過的組',
+                          f'還有 {unseen_groups} 組沒看過，裡面有 {unseen_photos} 張'
+                          '預設會被丟掉。\n要怎麼處理？', parent=self.host)
+        only_seen = box.addButton(f'只刪除已看過的（{seen_photos} 張）',
+                                  QMessageBox.ButtonRole.AcceptRole)
+        only_seen.setEnabled(seen_photos > 0)
+        everything = box.addButton(f'依然全部刪除（{seen_photos + unseen_photos} 張）',
+                                   QMessageBox.ButtonRole.DestructiveRole)
+        back = box.addButton('返回', QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(back)
+        box.setEscapeButton(back)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is only_seen:
+            return 'seen'
+        if clicked is everything:
+            return 'all'
+        return None
+
     def delete_discarded(self):
         if not self.review:
             return
         paths = self.review.discard_paths()
         if not paths:
             return
+        # 預設每組非推薦都是丟掉；還沒看過的組先問，避免一鍵連沒看的一起刪掉。
+        groups = None
+        unseen = self.review.groups_with_discards(exclude=self.seen)
+        if unseen:
+            seen_paths = self.review.discard_paths(self.seen)
+            choice = self.ask_unseen(len(unseen), len(paths) - len(seen_paths),
+                                     len(seen_paths))
+            if choice is None:
+                return
+            if choice == 'seen':
+                groups, paths = set(self.seen), seen_paths
         yes, no = QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
-        empty = self.review.all_discarded_groups()
+        empty = self.review.all_discarded_groups(groups)
         if empty and QMessageBox.question(self.host, '整組全部丟掉',
                 '第 ' + '、'.join(map(str, empty)) + ' 組全部都會丟掉，確定嗎？',
                 yes | no, no) != yes:
