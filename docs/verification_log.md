@@ -502,10 +502,32 @@ RAW 在 09-23 改為預設半尺寸解碼（3.1 節），而上面的校準全�
 
 ---
 
+## 八之一、刪除確認與完整測試（2026-10-30／31）
+
+10/30 加入三項行為（c967751、6bc9671、b1d56b8）：
+
+- 整理模式按刪除時，若還有**沒開啟過**的組，先問「只刪已看過的／依然全部刪除／返回」（預設返回）。
+  「看過」是指曾切到那一組，不保證逐張檢查。
+- `sync_photo_files(folder=...)` 只取回目前資料夾的紀錄比對大小與修改時間。
+  開資料夾時清掉已刪檔案紀錄的那段仍是 `SELECT file_path FROM photos_v2` 全表讀取，
+  前綴條件也沒有用到索引，所以不能說成「不掃整個資料庫」。
+- Windows 以 `GetDriveTypeW` 判斷磁碟類型，卸除式（2）或網路磁碟（4）視為沒有資源回收筒：
+  路徑旁提醒，刪除只有「返回」（預設）與「永久刪除 N 張」。這是依磁碟類型判斷，不是逐一探測有沒有回收筒。
+
+人工操作確認（10/30，Windows 11）：在實體 SD 卡（K:）與本機硬碟各放測試用假檔，
+SD 卡上出現永久刪除確認，確認後檔案刪除；本機硬碟上的假檔則移到資源回收筒。
+未保存截圖。這是人工檢查，不算在自動測試裡。
+
+完整測試（版本 b1d56b8，Windows 11、Python 3.10.11）：
+`python -m unittest discover -s tests -t .` 共 295 項，全部通過，0 失敗、0 錯誤、0 跳過；
+10/31 兩次執行分別為 92.7 秒與 113.0 秒。
+
+---
+
 ## 九、重現方式
 
 ```bash
-python -m unittest discover -s tests -t .          # 267 項測試
+python -m unittest discover -s tests -t .          # 295 項測試
 python training/eval_models.py                              # 模型指標
 python training/compare_aesthetic_models.py                 # 美感模型版本比較
 python tools/run_batch.py <資料夾> --output batch.jsonl   # 批次分析
