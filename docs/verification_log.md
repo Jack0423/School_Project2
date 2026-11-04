@@ -35,9 +35,10 @@
 
 | 項目 | 數字 |
 |---|---|
-| 單元測試 | 267 項，全數通過（期間由 109 項增加而來） |
+| 單元測試 | 295 項，全數通過（2026-10-31；期間由 109 項增加而來） |
 | 美感模型 | SRCC 0.7925 / PLCC 0.8872（AVA 驗證集 1,400 張） |
-| 技術模型 | SRCC 0.7951 / PLCC 0.8314（KonIQ 驗證集 2,015 張） |
+| 技術模型 | SRCC 0.7952 / PLCC 0.8315（KonIQ 驗證集 2,015 張；`eval_models.py` 逐張推論為 0.7951 / 0.8314，見第二節） |
+| 獨立測試集、3 個種子 | 美感 SRCC 0.789 ± 0.002、技術 0.785 ± 0.005（見八之二） |
 | 半尺寸解碼 | 整條管線快 4.3 倍，325 張（15 GB）從 2 分 03 秒降為 26 ～ 30 秒 |
 | 實際掃描 | 325 張 ARW 全部成功，找出 105 組連拍 |
 | 篩選效果 | 每組只留最佳一張時，325 張 → 114 張 |
@@ -54,6 +55,9 @@
 |---|---|---|---|
 | 美感（`nima_aes_dist.pth`） | AVA 1,400 張 | 0.8872 | 0.7925 |
 | 技術（`nima_tech_best.pth`） | KonIQ 2,015 張 | 0.8314 | 0.7951 |
+
+2026-11-04 在同一台電腦重跑 `eval_models.py`，結果與上表相同。書面報告採用的是 `model_report.py`（2026-09-22，逐張預測公開於 `docs/evidence/model_report_20260922/`）的數字：技術模型 PLCC 0.8315、SRCC 0.7952。
+差異只在小數第四位：`eval_models.py` 一次推論一張，`model_report.py` 與 `heldout_experiment.py` 一次推論多張，GPU 浮點運算的順序不同。以 `heldout_experiment.py` 的批次推論重算現役技術權重得到 0.83147 / 0.79518，與 `model_report.py` 相同；美感模型兩種寫法都是 0.8872 / 0.7925。
 
 `python training/compare_aesthetic_models.py`：同一組 1,400 張、統一以 AVA 群眾平均分（1～10 分）為對照答案。
 
@@ -116,13 +120,6 @@
 
 兩種寫法寫出的星等逐張相同，Lightroom 的調色與色標都保留。前台「寫入 XMP 星等」與「分析後自動寫入」都改用批次版。
 
-### 3.5 HEIC（2026-10-05）
-
-3 張 iPhone 14 Pro 直拍 HEIC（`F:\testing_photo\heic_file`，只讀）：檔案存的是 4032×3024 橫的，EXIF 與 HEIF 的 irot 都記「Rotate 90 CW」。
-pillow-heif 0.22.0 解碼時就轉正成 3024×4032，並把 EXIF Orientation 改成 1，程式原本的 `exif_transpose` 不會再轉一次；
-縮圖目視確認方向正確。三張評分、拍攝資訊（ExifTool）、前台批次分析與分組都正常（3 張 1.1 秒）。
-pillow-heif 固定 0.22.0：1.x 起要求 Pillow 11.1 以上，會把固定的 Pillow 11.0.0 一起升級。
-
 ### 3.4 前台分組的底層（2026-10-05）
 
 真實模型、`F:\testing_photo\testphoto` 325 張 ARW（照片只讀；資料庫與結果檔放暫存資料夾，不勾自動寫入 XMP）：
@@ -140,6 +137,13 @@ pillow-heif 固定 0.22.0：1.x 起要求 Pillow 11.1 以上，會把固定的 P
 
 ExifTool 讀 325 張的拍攝時間一次約 8 秒（`-fast2` 較快但會讀不到 Sony 的 `InternalSerialNumber`，`-fast` 沒有差別），
 所以放在分析時背景讀、存進資料庫，分組時不再呼叫 ExifTool。
+
+### 3.5 HEIC（2026-10-05）
+
+3 張 iPhone 14 Pro 直拍 HEIC（`F:\testing_photo\heic_file`，只讀）：檔案存的是 4032×3024 橫的，EXIF 與 HEIF 的 irot 都記「Rotate 90 CW」。
+pillow-heif 0.22.0 解碼時就轉正成 3024×4032，並把 EXIF Orientation 改成 1，程式原本的 `exif_transpose` 不會再轉一次；
+縮圖目視確認方向正確。三張評分、拍攝資訊（ExifTool）、前台批次分析與分組都正常（3 張 1.1 秒）。
+pillow-heif 固定 0.22.0：1.x 起要求 Pillow 11.1 以上，會把固定的 Pillow 11.0.0 一起升級。
 
 ---
 
@@ -548,7 +552,49 @@ SD 卡上出現永久刪除確認，確認後檔案刪除；本機硬碟上的�
   而重訓版本少了 20% 訓練資料；驗證集成績反而略低於測試集，沒有看到選權重造成的高估。
 - 技術模型的官方測試集與現役模型的驗證集（官方 training／test／validation 混合）組成不同，0.785 與 0.795 不能直接相減。
 - 技術模型有一次在第 30 輪（上限）最佳，加長訓練可能還有小幅改善。
-- GPU 運算不是逐位元可重現，重跑會有千分位以下的差異。
+- GPU 運算不是逐位元可重現，以相同種子重跑也不保證得到完全相同的數字（沒有實測重跑的差異大小）。
+
+---
+
+## 八之三、佐證資料公開與統計重算（2026-11-04）
+
+書面報告引用的模型報表與人工選擇原本放在 `reports/`（不進版本控管），讀者無法核對。改放進 `docs/evidence/`：
+
+- `model_report_20260922/`：模型報表的 summary、metrics 與逐張預測（美感 1,400 張、技術 2,015 張）。
+- `burst_labeling/`：連拍人工選擇的系統答案與兩位評選者的選擇。評選者姓名已移除，以 A、B 表示；
+  `answer_key.json` 的原始資料夾路徑也已移除。
+- `report_stats.json`：`python training/report_stats.py --save docs/evidence/report_stats.json` 的輸出。
+
+`training/report_stats.py` 只讀上述檔案與 `data/*.csv`，重算報告第四章與附錄 B 的統計，不需要影像：
+
+| 項目 | 結果 |
+|---|---|
+| bootstrap 95% 區間（5000 次，種子 20261104） | 美感 PLCC 0.872～0.902、SRCC 0.775～0.809；技術 PLCC 0.817～0.845、SRCC 0.775～0.814 |
+| bootstrap 的 SRCC 標準誤 | 美感 0.0084、技術 0.0097 |
+| 評選者 A | 42/93 = 45.2%，隨機 37.6%，Wilson 35.4%～55.3%，精確檢定單尾 p = 0.074 |
+| 評選者 B | 38/90 = 42.2%，隨機 37.8%，Wilson 32.5%～52.5%，p = 0.215 |
+| 兩位評選者彼此 | 38/86 = 44.2%，兩人都隨機時 37.7% |
+| 兩人同選的 38 組 | 系統命中 22 組（57.9%），隨機 42.4%，Wilson 42.2%～72.1%，p = 0.036 |
+| 補充實驗的驗證 SRCC | 美感 0.7803 ± 0.0034、技術 0.7808 ± 0.0048 |
+| BatchNorm 反推輪數 | 美感 15、技術 30、舊二元 24（3,920 張）與 27（5,600 張） |
+
+精確檢定：若系統每組隨機挑一張，第 i 組命中的機率是 1/n_i，命中組數的分佈由各組機率卷積而得；
+p 值是隨機挑也能命中這麼多組以上的機率（單尾）。兩人同選的子集是依評選結果事後挑出的，p = 0.036 只能算邊緣結果。
+
+評選者 B 把第 64 組（DSC02213～02215，3 張）標為「分錯了」，沒有選照片。
+這和 6.2「誤分 0 組」出自不同的人，分組設定也不完全相同（6.2 第一輪是 0.90／2 秒），沒有再複核。
+
+書面報告圖 3.2 改用實際照片：以 `tools/capture_grouping_review.py` 對 `F:	esting_photo	estphoto` 的前 40 張 ARW 自動操作前台（離線繪製）。
+這台 Windows 以一般權限無法建立符號連結，所以用修改過的副本執行，差別只有兩處：照片改用同一磁碟上的硬連結放進暫存資料夾
+（只讀取、不修改原檔，結束後暫存資料夾刪除），以及截圖前把畫面上的暫存資料夾路徑換成「testphoto（前 40 張 ARW）」。
+結果：40 張全部分析成功，分成 12 組（保留 12、丟掉 22），第一組縮圖 0.57 秒內完成，事件迴圈最長停頓 0.46 秒。
+
+資料來源（2026-11-04 以檔名、欄位與檔案數核對，網址見 README「資料集」）：
+
+- AVA 影像 7,000 張與舊二元標籤：Kaggle 社群競賽 Aesthetic Visual Analysis（`dataset/`、`train.csv`，欄位 index、image、label）。
+- AVA 評分分佈：Kaggle 資料集 nicolacarrassi/ava-aesthetic-visual-assessment 的 `ground_truth_dataset.csv`（47.88 MB，11 欄）。
+- KonIQ-10k：Kaggle 資料集 generalhawking/koniq-10k-dataset（標籤檔 10 欄、10,073 列；`512x384/` 有 10,373 張，
+  其中 300 張不在標籤檔內，訓練與評估都沒有用到）。
 
 ---
 
@@ -556,7 +602,9 @@ SD 卡上出現永久刪除確認，確認後檔案刪除；本機硬碟上的�
 
 ```bash
 python -m unittest discover -s tests -t .          # 295 項測試
-python training/eval_models.py                              # 模型指標
+python training/eval_models.py                              # 模型指標（逐張推論）
+python training/model_report.py                             # 模型報表（書面報告 4.3～4.5 的數字）
+python training/report_stats.py                             # 重算報告的統計（不需影像）
 python training/heldout_experiment.py                       # 獨立測試集、3 個種子重訓（約 4 小時）
 python training/compare_aesthetic_models.py                 # 美感模型版本比較
 python tools/run_batch.py <資料夾> --output batch.jsonl   # 批次分析

@@ -112,7 +112,16 @@ RAW 讀不到拍攝資訊、連拍判定前也無法匯出拍攝時間（`run_bu
 
 ### 3. 資料集（僅訓練與評估需要，約 2.1 GB）
 
-標註 CSV 已包含在版本庫內（`data/*.csv`，僅相對檔名，無個資），影像檔需自備：
+標註 CSV 已包含在版本庫內（`data/*.csv`，僅相對檔名，無個資），影像檔需自備。三個來源都在 Kaggle（2026-11-04 以檔名、欄位與檔案數核對）：
+
+- AVA 影像 7,000 張與舊二元標籤（`dataset/`、`train.csv`）：社群競賽 Aesthetic Visual Analysis，
+  <https://www.kaggle.com/competitions/aesthetic-visual-analysis>（下載前要先同意競賽規則）。
+- AVA 原始評分分佈（`ava/ground_truth_dataset.csv`）：<https://www.kaggle.com/datasets/nicolacarrassi/ava-aesthetic-visual-assessment>，
+  只需下載這一個 CSV（47.88 MB），不必下載 34 GB 的完整影像。
+- KonIQ-10k（`koniq/512x384/`、`koniq/koniq10k_distributions_sets.csv`）：<https://www.kaggle.com/datasets/generalhawking/koniq-10k-dataset>。
+  `512x384/` 有 10,373 張，其中 300 張不在標籤檔內，訓練與評估都不會用到。
+
+影像不放進版本庫：各資料集有各自的使用條款，檔案也太大。
 
 ```
 data/
