@@ -17,19 +17,21 @@
 
 ## 實測指標
 
-於 2026-09-19 在對應驗證集上量測（完整紀錄見 [docs/verification_log.md](docs/verification_log.md)）：
+2026-09-22 以 `training/model_report.py` 在對應驗證集上量測，逐張預測公開於 `docs/evidence/model_report_20260922/`（完整紀錄見 [docs/verification_log.md](docs/verification_log.md)）：
 
 | 模型 | PLCC | SRCC | 驗證集 |
 |---|---|---|---|
 | 美感（`nima_aes_dist.pth`，評分分佈版） | 0.8872 | 0.7925 | AVA 驗證集 1,400 張，對照答案為群眾平均分 |
-| 技術（`nima_tech_best.pth`） | 0.8314 | 0.7951 | KonIQ 驗證集 2,015 張 |
+| 技術（`nima_tech_best.pth`） | 0.8315 | 0.7952 | KonIQ 驗證集 2,015 張 |
 
-隨時可用 `python training/eval_models.py` 重現。新舊美感模型（二元標籤 vs 評分分佈）的比較
-請用 `training/compare_aesthetic_models.py`，它統一以 AVA 群眾平均分為對照答案。
+可用 `python training/model_report.py` 重現（一次推論多張）。`python training/eval_models.py` 一次推論一張，技術模型會得到 0.8314／0.7951，差在 GPU 浮點運算的順序。
+新舊美感模型（二元標籤 vs 評分分佈）的比較請用 `training/compare_aesthetic_models.py`，它統一以 AVA 群眾平均分為對照答案；兩個舊二元模型的權重沒有放進版本庫，比較結果記錄在 `docs/evidence/model_report_20260922/metrics.json`。
+報告用到的統計（信賴區間、人工選擇的檢定等）可用 `python training/report_stats.py` 重算，不需要影像。
 
-兩點限制：挑選最佳 epoch 與量測上面的數字用的是同一份驗證集，沒有另外保留測試集；
+兩點限制：挑選最佳 epoch 與量測上面的數字用的是同一份驗證集；
 KonIQ 的驗證集是自己隨機切的 20%，**不是**官方的 test 切分（剛好也是 2,015 張），
-不能直接和論文數字比較。
+不能直接和論文數字比較。為此 2026-11-04 另以三份切分（KonIQ 改用官方切分）、3 個亂數種子重訓，
+現役權重不變：測試集 SRCC 美感 0.789 ± 0.002、技術 0.785 ± 0.005（平均 ± 標準差），見驗證紀錄八之二。
 
 ---
 
@@ -522,5 +524,5 @@ python -m unittest discover -s tests -t .
 不是為了湊覆蓋率。資料集與權重缺席時會標記 skip 並說明缺什麼，而非直接失敗。
 
 寫完後做過變異測試：把已修好的 11 個 bug 逐一植回，**11/11 全部被攔截**。
-目前 unittest discovery 共 291 項；分組 Qt 整合測試另在隔離程序執行。
+目前 unittest discovery 共 295 項（2026-10-31）；分組 Qt 整合測試另在隔離程序執行。
 細節見 [tests/README.md](tests/README.md)。

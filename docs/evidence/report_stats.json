@@ -16,7 +16,8 @@
       "test": 389,
       "validation": 205
     },
-    "koniq_train_val_overlap": 0
+    "koniq_train_val_overlap": 0,
+    "koniq_official_test_in_deployed_train": 1626
   },
   "bootstrap": {
     "aesthetic": {
@@ -129,6 +130,10 @@
         30,
         23,
         27
+      ],
+      "test_srcc_sd_ci95": [
+        0.0008238212233966591,
+        0.009944138329368003
       ]
     },
     "tech": {
@@ -153,6 +158,10 @@
         30,
         30,
         30
+      ],
+      "test_srcc_sd_ci95": [
+        0.0025460640921902717,
+        0.030732897877755145
       ]
     }
   },

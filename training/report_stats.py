@@ -56,6 +56,8 @@ def data_stats():
     out['koniq_train_val'] = [len(tt), len(vt)]
     out['koniq_val_composition'] = src[src.image_name.isin(vt.image)]['set'].value_counts().to_dict()
     out['koniq_train_val_overlap'] = len(set(tt.image) & set(vt.image))
+    # 現役技術模型為何不能改用官方測試集重測：官方測試集有多少張在它的訓練集裡
+    out['koniq_official_test_in_deployed_train'] = len(set(src[src['set'] == 'test'].image_name) & set(tt.image))
     return out
 
 
@@ -137,6 +139,11 @@ def heldout():
                      for k in ('val_srcc', 'test_plcc', 'test_srcc')}
         out[kind]['best_epoch'] = [r['best_epoch'] for r in rs]
         out[kind]['epochs'] = [r['epochs'] for r in rs]
+        # 只有 3 次訓練，標準差本身的 95% 區間（卡方分佈，自由度 n-1）
+        n = len(rs)
+        sd = out[kind]['test_srcc'][1]
+        out[kind]['test_srcc_sd_ci95'] = [float(sd * math.sqrt((n - 1) / stats.chi2.ppf(0.975, n - 1))),
+                                         float(sd * math.sqrt((n - 1) / stats.chi2.ppf(0.025, n - 1)))]
     return out
 
 
@@ -180,7 +187,8 @@ def main():
           f"4.5 至 6.5 分占 {d['ava_mid_share_all']:.1%}（驗證集 {d['ava_mid_share_val']:.1%}）；"
           f"驗證集平均分 > 6 占 {d['ava_val_above6']:.1%}")
     print(f"[INFO] KonIQ 訓練／驗證 {d['koniq_train_val']}，驗證集官方組成 {d['koniq_val_composition']}；"
-          f"重疊 AVA {d['ava_train_val_overlap']}、KonIQ {d['koniq_train_val_overlap']}")
+          f"重疊 AVA {d['ava_train_val_overlap']}、KonIQ {d['koniq_train_val_overlap']}；"
+          f"官方測試集在現役訓練集裡 {d['koniq_official_test_in_deployed_train']} 張")
     for name, b in result['bootstrap'].items():
         print(f"[INFO] {name} n={b['n']} PLCC {b['plcc']:.4f} [{b['plcc_ci95'][0]:.3f}, {b['plcc_ci95'][1]:.3f}]  "
               f"SRCC {b['srcc']:.4f} [{b['srcc_ci95'][0]:.3f}, {b['srcc_ci95'][1]:.3f}]  "
@@ -196,7 +204,8 @@ def main():
     for kind, r in result['heldout'].items():
         print(f"[INFO] 補充實驗 {kind}：驗證 SRCC {r['val_srcc'][0]:.4f} +/- {r['val_srcc'][1]:.4f}，"
               f"測試 PLCC {r['test_plcc'][0]:.4f} +/- {r['test_plcc'][1]:.4f}，"
-              f"測試 SRCC {r['test_srcc'][0]:.4f} +/- {r['test_srcc'][1]:.4f}，最佳 epoch {r['best_epoch']}")
+              f"測試 SRCC {r['test_srcc'][0]:.4f} +/- {r['test_srcc'][1]:.4f}，最佳 epoch {r['best_epoch']}，"
+              f"標準差的 95% 區間 [{r['test_srcc_sd_ci95'][0]:.4f}, {r['test_srcc_sd_ci95'][1]:.4f}]")
     if 'epochs' in result:
         print(f"[INFO] 訓練輪數：{result['epochs']}")
 
