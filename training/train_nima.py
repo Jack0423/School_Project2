@@ -110,6 +110,10 @@ def parse_args():
     p.add_argument('--lr-head', type=float, default=1e-4)
     p.add_argument('--weight-decay', type=float, default=1e-4)
     p.add_argument('--patience', type=int, default=5, help='Early Stopping 容忍 epoch 數')
+    p.add_argument('--seed', type=int, default=None,
+                   help='固定亂數種子（重複實驗用）；不給時與原本相同，每次結果不同')
+    p.add_argument('--num-workers', type=int, default=None,
+                   help='DataLoader 的 worker 數；不給時 Windows 用 0、其他系統用 2')
     p.add_argument('--force', action='store_true',
                    help='允許覆寫已存在的權重檔')
     return p.parse_args()
@@ -145,7 +149,17 @@ def main():
     pin_memory = torch.cuda.is_available()
 
     # Windows 環境 num_workers > 0 容易觸發多進程問題
-    num_workers = 0 if os.name == 'nt' else 2
+    num_workers = (0 if os.name == 'nt' else 2) if args.num_workers is None else args.num_workers
+
+    if args.seed is not None:
+        # 固定權重初始化之外的亂數（分類頭初始化、資料打亂、資料增強、Dropout）。
+        # GPU 的部分運算本身不保證逐位元相同，所以同一個種子重跑仍可能有極小差異。
+        import random
+        import numpy as np
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        print(f"[INFO] 亂數種子={args.seed}")
 
     # 前處理一律由 common/transforms.py 提供，確保與推論端完全一致
     train_transform = build_transform('train_aesthetic')

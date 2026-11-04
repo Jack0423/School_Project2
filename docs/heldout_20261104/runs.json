@@ -1,0 +1,82 @@
+{
+  "splits": {
+    "aes_test": 1400,
+    "aes_train": 4480,
+    "aes_val": 1120,
+    "tech_test": 2015,
+    "tech_train": 7058,
+    "tech_val": 1000
+  },
+  "split_seed": 42,
+  "device": "cuda",
+  "torch": "2.11.0+cu128",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "runs": [
+    {
+      "kind": "aes",
+      "seed": 1,
+      "epochs": 30,
+      "best_epoch": 30,
+      "val_plcc": 0.8933,
+      "val_srcc": 0.784,
+      "test_plcc": 0.8861520241934897,
+      "test_srcc": 0.7907694617471505,
+      "minutes": 41.398837562402086
+    },
+    {
+      "kind": "aes",
+      "seed": 2,
+      "epochs": 23,
+      "best_epoch": 18,
+      "val_plcc": 0.8899,
+      "val_srcc": 0.7773,
+      "test_plcc": 0.882224023314657,
+      "test_srcc": 0.7892392179978518,
+      "minutes": 30.20571721792221
+    },
+    {
+      "kind": "aes",
+      "seed": 3,
+      "epochs": 27,
+      "best_epoch": 22,
+      "val_plcc": 0.8919,
+      "val_srcc": 0.7795,
+      "test_plcc": 0.8831058822832398,
+      "test_srcc": 0.7876054886354098,
+      "minutes": 36.04634272257487
+    },
+    {
+      "kind": "tech",
+      "seed": 1,
+      "epochs": 30,
+      "best_epoch": 25,
+      "val_plcc": 0.8147,
+      "val_srcc": 0.7817,
+      "test_plcc": 0.8210164446629223,
+      "test_srcc": 0.786942630687271,
+      "minutes": 41.284951460361484
+    },
+    {
+      "kind": "tech",
+      "seed": 2,
+      "epochs": 30,
+      "best_epoch": 30,
+      "val_plcc": 0.8163,
+      "val_srcc": 0.7756,
+      "test_plcc": 0.8206492354042464,
+      "test_srcc": 0.7796316326539855,
+      "minutes": 40.88716612656911
+    },
+    {
+      "kind": "tech",
+      "seed": 3,
+      "epochs": 30,
+      "best_epoch": 25,
+      "val_plcc": 0.8148,
+      "val_srcc": 0.785,
+      "test_plcc": 0.8234803780520223,
+      "test_srcc": 0.7889130383653635,
+      "minutes": 39.96227826277415
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+C:\Users\jack9\AppData\Local\Programs\Python\Python310\python.exe training/train_tech.py --train-csv F:\School_Project2\reports\heldout\20261104-123142\tech_train.csv --val-csv F:\School_Project2\reports\heldout\20261104-123142\tech_val.csv --save F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth --seed 1 --num-workers 8 --force
+[INFO] 訓練集=F:\School_Project2\reports\heldout\20261104-123142\tech_train.csv  驗證集=F:\School_Project2\reports\heldout\20261104-123142\tech_val.csv  影像=data/koniq/512x384
+   輸出=F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth  epochs=30  batch=32
+[ OK ] 設備確認: NVIDIA GeForce RTX 5070 Ti
+[INFO] 亂數種子=1
+[INFO] 開始訓練技術品質模型 (目標檔案: F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth)...
+
+Epoch [ 1/30] | Train: 0.0690 | Val: 0.0386 | PLCC: 0.3416 | SRCC: 0.3252 | LR: 1.00e-04
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 2/30] | Train: 0.0376 | Val: 0.0268 | PLCC: 0.4932 | SRCC: 0.4775 | LR: 9.97e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 3/30] | Train: 0.0285 | Val: 0.0217 | PLCC: 0.5580 | SRCC: 0.5371 | LR: 9.89e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 4/30] | Train: 0.0234 | Val: 0.0184 | PLCC: 0.6110 | SRCC: 0.5875 | LR: 9.76e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 5/30] | Train: 0.0199 | Val: 0.0164 | PLCC: 0.6464 | SRCC: 0.6211 | LR: 9.57e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 6/30] | Train: 0.0180 | Val: 0.0150 | PLCC: 0.6794 | SRCC: 0.6493 | LR: 9.33e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 7/30] | Train: 0.0162 | Val: 0.0139 | PLCC: 0.6968 | SRCC: 0.6668 | LR: 9.05e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 8/30] | Train: 0.0149 | Val: 0.0127 | PLCC: 0.7261 | SRCC: 0.6983 | LR: 8.72e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [ 9/30] | Train: 0.0135 | Val: 0.0122 | PLCC: 0.7367 | SRCC: 0.7068 | LR: 8.35e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [10/30] | Train: 0.0127 | Val: 0.0119 | PLCC: 0.7535 | SRCC: 0.7242 | LR: 7.94e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [11/30] | Train: 0.0119 | Val: 0.0117 | PLCC: 0.7556 | SRCC: 0.7282 | LR: 7.50e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [12/30] | Train: 0.0113 | Val: 0.0115 | PLCC: 0.7661 | SRCC: 0.7399 | LR: 7.03e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [13/30] | Train: 0.0107 | Val: 0.0104 | PLCC: 0.7729 | SRCC: 0.7427 | LR: 6.55e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [14/30] | Train: 0.0105 | Val: 0.0102 | PLCC: 0.7777 | SRCC: 0.7435 | LR: 6.04e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [15/30] | Train: 0.0099 | Val: 0.0100 | PLCC: 0.7866 | SRCC: 0.7547 | LR: 5.52e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [16/30] | Train: 0.0098 | Val: 0.0093 | PLCC: 0.7919 | SRCC: 0.7601 | LR: 5.00e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [17/30] | Train: 0.0094 | Val: 0.0101 | PLCC: 0.7926 | SRCC: 0.7613 | LR: 4.48e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [18/30] | Train: 0.0092 | Val: 0.0094 | PLCC: 0.7939 | SRCC: 0.7622 | LR: 3.96e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [19/30] | Train: 0.0092 | Val: 0.0098 | PLCC: 0.7986 | SRCC: 0.7654 | LR: 3.45e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [20/30] | Train: 0.0090 | Val: 0.0100 | PLCC: 0.8053 | SRCC: 0.7714 | LR: 2.97e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [21/30] | Train: 0.0088 | Val: 0.0090 | PLCC: 0.8069 | SRCC: 0.7722 | LR: 2.50e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [22/30] | Train: 0.0085 | Val: 0.0089 | PLCC: 0.8065 | SRCC: 0.7725 | LR: 2.06e-05
+  [INFO] 未改善 (1/5)
+Epoch [23/30] | Train: 0.0083 | Val: 0.0091 | PLCC: 0.8114 | SRCC: 0.7769 | LR: 1.65e-05
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [24/30] | Train: 0.0085 | Val: 0.0094 | PLCC: 0.8119 | SRCC: 0.7758 | LR: 1.28e-05
+  [INFO] 未改善 (1/5)
+Epoch [25/30] | Train: 0.0082 | Val: 0.0086 | PLCC: 0.8147 | SRCC: 0.7817 | LR: 9.55e-06
+  [ OK ] PLCC/SRCC 改善，技術品質模型已存至 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth
+Epoch [26/30] | Train: 0.0082 | Val: 0.0092 | PLCC: 0.8114 | SRCC: 0.7773 | LR: 6.70e-06
+  [INFO] 未改善 (1/5)
+Epoch [27/30] | Train: 0.0082 | Val: 0.0086 | PLCC: 0.8117 | SRCC: 0.7789 | LR: 4.32e-06
+  [INFO] 未改善 (2/5)
+Epoch [28/30] | Train: 0.0084 | Val: 0.0094 | PLCC: 0.8093 | SRCC: 0.7743 | LR: 2.45e-06
+  [INFO] 未改善 (3/5)
+Epoch [29/30] | Train: 0.0083 | Val: 0.0092 | PLCC: 0.8101 | SRCC: 0.7748 | LR: 1.09e-06
+  [INFO] 未改善 (4/5)
+Epoch [30/30] | Train: 0.0083 | Val: 0.0087 | PLCC: 0.8130 | SRCC: 0.7782 | LR: 2.74e-07
+  [INFO] 未改善 (5/5)
+
+[INFO] Early Stopping 觸發（連續 5 個 epoch 未改善）
+
+[ OK ] 訓練完成！最佳 PLCC/SRCC 平均: 0.7982，權重儲存於 F:\School_Project2\reports\heldout\20261104-123142\tech_seed1.pth

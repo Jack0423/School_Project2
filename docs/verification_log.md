@@ -524,11 +524,40 @@ SD 卡上出現永久刪除確認，確認後檔案刪除；本機硬碟上的�
 
 ---
 
+## 八之二、獨立測試集與多種子重訓（2026-11-04）
+
+現役權重挑最佳 epoch 用的驗證集，也是模型報表量 PLCC／SRCC 的資料，而且只訓練過一次。
+為了量測沒有參與選權重的成績，用 `training/heldout_experiment.py` 另外重訓（**現役權重不動**）：
+
+- 美感：`ava_train.csv` 以種子 42 切為訓練 4480／驗證 1120，`ava_val.csv` 的 1400 張改當測試集。
+- 技術：KonIQ-10k 官方切分，訓練 7058／驗證 1000／測試 2015。
+- 訓練程式、前處理、超參數與現役模型相同；每個模型以種子 1、2、3 各訓練一次（`--seed`），
+  測試集只在訓練結束後評估一次。
+
+環境：RTX 5070 Ti、torch 2.11.0+cu128，6 次共約 3 小時 50 分。
+逐輪紀錄、`runs.json`、`summary.md` 複製在 `docs/heldout_20261104/`（權重與逐張預測在本機 `reports/heldout/20261104-123142/`，不進版本控管）。
+
+| 模型 | 最佳 epoch（3 次） | 測試 PLCC | 測試 SRCC | 驗證減測試 SRCC |
+|---|---|---|---|---|
+| 美感 | 30、18、22 | 0.8838 ± 0.0021 | 0.7892 ± 0.0016 | −0.0089 |
+| 技術 | 25、30、25 | 0.8217 ± 0.0015 | 0.7852 ± 0.0049 | −0.0044 |
+
+解讀：
+
+- 美感測試 SRCC 0.789 與現役權重在同一批 1400 張上的 0.7925 只差約 0.003，
+  而重訓版本少了 20% 訓練資料；驗證集成績反而略低於測試集，沒有看到選權重造成的高估。
+- 技術模型的官方測試集與現役模型的驗證集（官方 training／test／validation 混合）組成不同，0.785 與 0.795 不能直接相減。
+- 技術模型有一次在第 30 輪（上限）最佳，加長訓練可能還有小幅改善。
+- GPU 運算不是逐位元可重現，重跑會有千分位以下的差異。
+
+---
+
 ## 九、重現方式
 
 ```bash
 python -m unittest discover -s tests -t .          # 295 項測試
 python training/eval_models.py                              # 模型指標
+python training/heldout_experiment.py                       # 獨立測試集、3 個種子重訓（約 4 小時）
 python training/compare_aesthetic_models.py                 # 美感模型版本比較
 python tools/run_batch.py <資料夾> --output batch.jsonl   # 批次分析
 python tools/run_bursts.py batch.jsonl photo_metadata.json --output bursts.json

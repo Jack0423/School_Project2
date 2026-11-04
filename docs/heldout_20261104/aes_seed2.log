@@ -1,0 +1,57 @@
+C:\Users\jack9\AppData\Local\Programs\Python\Python310\python.exe training/train_nima.py --mode distribution --train-csv F:\School_Project2\reports\heldout\20261104-123142\aes_train.csv --val-csv F:\School_Project2\reports\heldout\20261104-123142\aes_val.csv --save F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth --seed 2 --num-workers 8 --force
+[INFO] 模式=distribution  訓練集=F:\School_Project2\reports\heldout\20261104-123142\aes_train.csv  驗證集=F:\School_Project2\reports\heldout\20261104-123142\aes_val.csv
+   輸出=F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth  epochs=30  batch=32
+[ OK ] 設備確認: NVIDIA GeForce RTX 5070 Ti
+[INFO] 亂數種子=2
+[INFO] 開始訓練...
+
+Epoch [ 1/30] | Train: 0.0399 | Val: 0.0285 | PLCC: 0.7613 | SRCC: 0.7161 | LR: 1.00e-04
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 2/30] | Train: 0.0235 | Val: 0.0187 | PLCC: 0.8221 | SRCC: 0.7435 | LR: 9.97e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 3/30] | Train: 0.0175 | Val: 0.0156 | PLCC: 0.8481 | SRCC: 0.7520 | LR: 9.89e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 4/30] | Train: 0.0159 | Val: 0.0148 | PLCC: 0.8594 | SRCC: 0.7560 | LR: 9.76e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 5/30] | Train: 0.0147 | Val: 0.0138 | PLCC: 0.8665 | SRCC: 0.7598 | LR: 9.57e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 6/30] | Train: 0.0137 | Val: 0.0138 | PLCC: 0.8708 | SRCC: 0.7633 | LR: 9.33e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 7/30] | Train: 0.0129 | Val: 0.0130 | PLCC: 0.8762 | SRCC: 0.7646 | LR: 9.05e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 8/30] | Train: 0.0125 | Val: 0.0128 | PLCC: 0.8778 | SRCC: 0.7663 | LR: 8.72e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [ 9/30] | Train: 0.0120 | Val: 0.0127 | PLCC: 0.8803 | SRCC: 0.7678 | LR: 8.35e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [10/30] | Train: 0.0117 | Val: 0.0125 | PLCC: 0.8834 | SRCC: 0.7701 | LR: 7.94e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [11/30] | Train: 0.0118 | Val: 0.0125 | PLCC: 0.8824 | SRCC: 0.7723 | LR: 7.50e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [12/30] | Train: 0.0112 | Val: 0.0121 | PLCC: 0.8866 | SRCC: 0.7733 | LR: 7.03e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [13/30] | Train: 0.0108 | Val: 0.0128 | PLCC: 0.8827 | SRCC: 0.7729 | LR: 6.55e-05
+  [INFO] 未改善 (1/5)
+Epoch [14/30] | Train: 0.0107 | Val: 0.0121 | PLCC: 0.8869 | SRCC: 0.7752 | LR: 6.04e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [15/30] | Train: 0.0104 | Val: 0.0130 | PLCC: 0.8821 | SRCC: 0.7737 | LR: 5.52e-05
+  [INFO] 未改善 (1/5)
+Epoch [16/30] | Train: 0.0098 | Val: 0.0123 | PLCC: 0.8862 | SRCC: 0.7753 | LR: 5.00e-05
+  [INFO] 未改善 (2/5)
+Epoch [17/30] | Train: 0.0100 | Val: 0.0130 | PLCC: 0.8828 | SRCC: 0.7760 | LR: 4.48e-05
+  [INFO] 未改善 (3/5)
+Epoch [18/30] | Train: 0.0103 | Val: 0.0118 | PLCC: 0.8899 | SRCC: 0.7773 | LR: 3.96e-05
+  [ OK ] PLCC/SRCC 改善，模型已存至 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
+Epoch [19/30] | Train: 0.0100 | Val: 0.0123 | PLCC: 0.8867 | SRCC: 0.7764 | LR: 3.45e-05
+  [INFO] 未改善 (1/5)
+Epoch [20/30] | Train: 0.0099 | Val: 0.0119 | PLCC: 0.8884 | SRCC: 0.7767 | LR: 2.97e-05
+  [INFO] 未改善 (2/5)
+Epoch [21/30] | Train: 0.0096 | Val: 0.0123 | PLCC: 0.8870 | SRCC: 0.7787 | LR: 2.50e-05
+  [INFO] 未改善 (3/5)
+Epoch [22/30] | Train: 0.0097 | Val: 0.0121 | PLCC: 0.8874 | SRCC: 0.7782 | LR: 2.06e-05
+  [INFO] 未改善 (4/5)
+Epoch [23/30] | Train: 0.0093 | Val: 0.0122 | PLCC: 0.8875 | SRCC: 0.7766 | LR: 1.65e-05
+  [INFO] 未改善 (5/5)
+
+[INFO] Early Stopping 觸發（連續 5 個 epoch 未改善）
+
+[ OK ] 訓練完成！最佳 PLCC/SRCC 平均: 0.8336，權重儲存於 F:\School_Project2\reports\heldout\20261104-123142\aes_seed2.pth
