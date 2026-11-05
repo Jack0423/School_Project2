@@ -85,7 +85,7 @@ python -m unittest tests.test_evaluate_photo -v
 - `test_grouping_review.py`：保留預設值、換推薦、多張保留、還原調整、整組丟掉、三種推薦說明與技術分差提示。
 - `test_grouping_thumbnails.py`：JPG、HEIC、RAW 內嵌 JPEG／bitmap、EXIF／LibRaw 直拍方向、無內嵌縮圖 fallback。
 - `test_grouping_ui.py`：在隔離 Qt 程序執行 `qt_grouping_check.py`，驗證主視窗模式、鍵盤、刪除兩階段確認／取消、精確傳入丟掉路徑、重分組、失敗原因、重新進入更新推薦，以及背景縮圖去重與跨資料夾失效。刪除函式全部 patch，不實際刪檔。
-- 真實照片效能與截圖：`python tools/capture_grouping_review.py PHOTO_FOLDER OUTPUT_DIR`，需 40 張 ARW 與模型權重。使用臨時資料庫與照片連結，透過現有批次分析產生分數與特徵，不讀 JSONL 作為分組來源。會建立實際 Qt 畫面的自動操作影片、截圖與量測 JSON。
+- 真實照片效能與截圖：`python tools/capture_grouping_review.py PHOTO_FOLDER OUTPUT_DIR`，需 40 張 ARW 與模型權重。使用臨時資料庫，照片以連結放進 `output/testphoto_前40張`（結束後刪除），透過現有批次分析產生分數與特徵，不讀 JSONL 作為分組來源。視窗會開在螢幕最上層約 15 秒，產生主視窗與整理模式的螢幕截圖、自動操作影片與量測 JSON。
 
 ## 2026-10-20 整合補強
 
