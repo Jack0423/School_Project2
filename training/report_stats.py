@@ -13,7 +13,8 @@
 輸出對照報告：
   1. 資料統計     2.3 的平均分、標準差、4.5 至 6.5 分比例；4.1 的 KonIQ 驗證集組成與重疊檢查
   2. bootstrap    4.3 的 95% 信賴區間（5000 次重抽，亂數種子 20261104，與報告數字相同）
-  3. 人工選擇     4.7 的一致率、隨機基準、Wilson 95% 區間、精確檢定（各組命中機率 1/n）
+  3. 人工選擇     4.7 的一致率、隨機基準、Wilson 95% 區間、精確檢定（各組命中機率 1/n）；
+                  各評選者的備註（如「都差不多」）組數，以及系統第一名與第二名綜合分相差不到 1 分的組數
   4. 補充實驗     表 4.6 的平均與標準差（含驗證 SRCC 的標準差）
   5. 訓練輪數     B.2 由 BatchNorm 計數反推；沒有的權重檔會略過
 
@@ -25,6 +26,7 @@ import csv
 import json
 import math
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -126,6 +128,14 @@ def human_agreement():
                              'chance': float(np.mean([1 / len(key[g]['photos']) for g in common]))}
     out['consensus_subset'] = summary(agree, picks['A'])
     out['notes'] = {tag: dict(sorted(notes[tag].items(), key=lambda kv: int(kv[0]))) for tag in 'AB'}
+    out['note_counts'] = {tag: dict(Counter(notes[tag].values())) for tag in 'AB'}
+    # 同組照片的綜合分有多接近：第一名減第二名
+    gaps = []
+    for g in key.values():
+        top = sorted(g['photos'].values(), reverse=True)
+        gaps.append(top[0] - top[1])
+    out['score_gap'] = {'groups': len(gaps), 'top2_gap_lt1': sum(1 for d in gaps if d < 1),
+                        'median': float(np.median(gaps))}
     return out
 
 
@@ -201,6 +211,10 @@ def main():
     br = h['between_raters']
     print(f"[INFO] 兩位評選者彼此：{br['agree']}/{br['common']} = {br['rate']:.1%}，兩人都隨機時 {br['chance']:.1%}")
     print(f"[INFO] 評選備註：{h['notes']}")
+    print(f"[INFO] 備註組數：A {h['note_counts']['A']}，B {h['note_counts']['B']}")
+    sg = h['score_gap']
+    print(f"[INFO] 系統第一名與第二名綜合分相差不到 1 分：{sg['top2_gap_lt1']}/{sg['groups']} 組，"
+          f"差距中位數 {sg['median']:.2f} 分")
     for kind, r in result['heldout'].items():
         print(f"[INFO] 補充實驗 {kind}：驗證 SRCC {r['val_srcc'][0]:.4f} +/- {r['val_srcc'][1]:.4f}，"
               f"測試 PLCC {r['test_plcc'][0]:.4f} +/- {r['test_plcc'][1]:.4f}，"
