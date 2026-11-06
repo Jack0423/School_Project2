@@ -119,6 +119,17 @@
       "groups": 97,
       "top2_gap_lt1": 41,
       "median": 1.230000000000004
+    },
+    "score_spread": {
+      "groups": 97,
+      "median_range": {
+        "aesthetic": 2.309999999999995,
+        "technical": 4.229999999999997,
+        "overall": 2.3800000000000026
+      },
+      "best_is_tech_best": 76,
+      "best_is_aes_best": 69,
+      "max_overall_diff_vs_answer_key": 0.010000000000005116
     }
   },
   "heldout": {

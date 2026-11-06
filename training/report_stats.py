@@ -14,7 +14,8 @@
   1. 資料統計     2.3 的平均分、標準差、4.5 至 6.5 分比例；4.1 的 KonIQ 驗證集組成與重疊檢查
   2. bootstrap    4.3 的 95% 信賴區間（5000 次重抽，亂數種子 20261104，與報告數字相同）
   3. 人工選擇     4.7 的一致率、隨機基準、Wilson 95% 區間、精確檢定（各組命中機率 1/n）；
-                  各評選者的備註（如「都差不多」）組數，以及系統第一名與第二名綜合分相差不到 1 分的組數
+                  各評選者的備註（如「都差不多」）組數，以及系統第一名與第二名綜合分相差不到 1 分的組數；
+                  同組美感分與技術分的差距（photo_scores.csv：2026-11-06 以現役模型重新分析同一批 325 張）
   4. 補充實驗     表 4.6 的平均與標準差（含驗證 SRCC 的標準差）
   5. 訓練輪數     B.2 由 BatchNorm 計數反推；沒有的權重檔會略過
 
@@ -136,7 +137,33 @@ def human_agreement():
         gaps.append(top[0] - top[1])
     out['score_gap'] = {'groups': len(gaps), 'top2_gap_lt1': sum(1 for d in gaps if d < 1),
                         'median': float(np.median(gaps))}
+    out['score_spread'] = burst_score_spread(key)
     return out
+
+
+def burst_score_spread(key):
+    """同組連拍中，美感分與技術分各自的最高減最低；以及綜合分第一名是否也是技術分／美感分第一名。"""
+    path = LABELS / 'photo_scores.csv'
+    if not path.exists():
+        return {'skipped': '找不到 photo_scores.csv'}
+    with open(path, encoding='utf-8', newline='') as f:
+        scores = {r['file']: r for r in csv.DictReader(f)}
+    spread = {'aesthetic': [], 'technical': [], 'overall': []}
+    same_tech = same_aes = 0
+    max_diff = 0.0
+    for g in key.values():
+        names = list(g['photos'])
+        col = {k: {n: float(scores[n][f'{k}_score']) for n in names} for k in spread}
+        for k in spread:
+            spread[k].append(max(col[k].values()) - min(col[k].values()))
+        best = max(col['overall'], key=col['overall'].get)
+        same_tech += best == max(col['technical'], key=col['technical'].get)
+        same_aes += best == max(col['aesthetic'], key=col['aesthetic'].get)
+        # 重新分析的綜合分要和評選時的答案一致，否則這份分數不能代表那次評選
+        max_diff = max(max_diff, max(abs(col['overall'][n] - s) for n, s in g['photos'].items()))
+    return {'groups': len(key), 'median_range': {k: float(np.median(v)) for k, v in spread.items()},
+            'best_is_tech_best': same_tech, 'best_is_aes_best': same_aes,
+            'max_overall_diff_vs_answer_key': max_diff}
 
 
 def heldout():
@@ -215,6 +242,12 @@ def main():
     sg = h['score_gap']
     print(f"[INFO] 系統第一名與第二名綜合分相差不到 1 分：{sg['top2_gap_lt1']}/{sg['groups']} 組，"
           f"差距中位數 {sg['median']:.2f} 分")
+    sp = h['score_spread']
+    if 'skipped' not in sp:
+        m = sp['median_range']
+        print(f"[INFO] 同組分數差距中位數：美感 {m['aesthetic']:.2f}、技術 {m['technical']:.2f}、綜合 {m['overall']:.2f}；"
+              f"推薦也是技術分第一 {sp['best_is_tech_best']}/{sp['groups']}、美感分第一 {sp['best_is_aes_best']}/{sp['groups']}；"
+              f"與評選時綜合分最多差 {sp['max_overall_diff_vs_answer_key']:.2f}")
     for kind, r in result['heldout'].items():
         print(f"[INFO] 補充實驗 {kind}：驗證 SRCC {r['val_srcc'][0]:.4f} +/- {r['val_srcc'][1]:.4f}，"
               f"測試 PLCC {r['test_plcc'][0]:.4f} +/- {r['test_plcc'][1]:.4f}，"
