@@ -39,6 +39,7 @@ from PIL import Image
 from scipy.stats import pearsonr, spearmanr
 
 import ai_inference as ai
+from common import metrics as M
 
 
 def _predict(model, csv_path, img_dir, add_suffix):
@@ -97,15 +98,11 @@ def _predict(model, csv_path, img_dir, add_suffix):
 
 
 def _auc(scores, labels):
-    """以排名法計算 AUC，避免為此引入 scikit-learn 依賴。"""
-    order = np.argsort(scores)
-    ranks = np.empty(len(scores), dtype=float)
-    ranks[order] = np.arange(1, len(scores) + 1)
-    n_pos = labels.sum()
-    n_neg = len(labels) - n_pos
-    if n_pos == 0 or n_neg == 0:
+    """AUC；同分樣本視為同一門檻（共用 common.metrics），只有單一類別時回傳 nan。"""
+    try:
+        return M.auc_from_roc(*M.roc_curve(scores, labels))
+    except ValueError:
         return float('nan')
-    return (ranks[labels == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
 
 
 def in_project(path):

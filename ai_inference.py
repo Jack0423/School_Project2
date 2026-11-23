@@ -602,8 +602,9 @@ def _estimate_noise_sigma(gray_full):
     """
     h, w = gray_full.shape
     tile = min(NOISE_TILE_SIZE, h, w)
-    ys = np.linspace(0, h - tile, NOISE_TILE_GRID).astype(int)
-    xs = np.linspace(0, w - tile, NOISE_TILE_GRID).astype(int)
+    # 去掉重複的起點：某一邊等於 tile 時，四個起點會相同，同一塊會被重算並重複計數
+    ys = np.unique(np.linspace(0, h - tile, NOISE_TILE_GRID).astype(int))
+    xs = np.unique(np.linspace(0, w - tile, NOISE_TILE_GRID).astype(int))
 
     total = 0.0
     count = 0

@@ -8,7 +8,6 @@ batch size = 1 時張量被壓成 0 維的問題，train_nima.py 卻沒有跟著
 """
 import numpy as np
 import torch
-from scipy.stats import pearsonr, spearmanr
 
 
 def to_mean_score(tensor, output_mode):
@@ -65,6 +64,8 @@ def run_epoch(model, loader, criterion, device, optimizer=None, is_train=True,
     avg_loss = total_loss / len(loader)
 
     if collect_metrics:
+        # 延後匯入：common 套件會被推論端載入，而主程式環境不裝 SciPy（見 start.py）
+        from scipy.stats import pearsonr, spearmanr
         preds = np.concatenate(all_preds)
         targets = np.concatenate(all_labels)
         plcc, _ = pearsonr(preds, targets)

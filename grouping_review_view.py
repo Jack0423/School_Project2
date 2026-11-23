@@ -412,7 +412,6 @@ class GroupReviewView(QObject):
         if (self.host.current_file_path in paths
                 and not Path(self.host.current_file_path).is_file()):
             self.host.current_file_path = None
-            self.host.current_image_buffer = None
             self.host.preview.clearPhoto()
             self.host.file_label.setText('目前尚未選取照片')
             self.host.result_label.setText('尚未選取照片')

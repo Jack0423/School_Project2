@@ -37,11 +37,6 @@ def scan_folder(folder):
     return sorted(photos), dict(skipped)
 
 
-def collect_photos(folder):
-    """遞迴收集資料夾中的照片。需要知道略過了哪些照片時改用 scan_folder()。"""
-    return scan_folder(folder)[0]
-
-
 def analyze_batch(paths, output_path, aesthetic_weight=0.6,
                   on_progress=None, should_stop=None):
     """

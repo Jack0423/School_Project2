@@ -26,11 +26,6 @@ RATING_THRESHOLDS = ((5, 69), (4, 64), (3, 54), (2, 47))
 
 class RawProcessor:
     @staticmethod
-    def is_raw(file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        return ext in RAW_EXTENSIONS
-
-    @staticmethod
     def map_score_to_rating(score):
         """依據綜合分映射星等（門檻見 RATING_THRESHOLDS）"""
         for rating, lower in RATING_THRESHOLDS:

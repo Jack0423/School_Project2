@@ -191,7 +191,6 @@ class PhotoPreviewLabel(QLabel):
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos.db")
 MODEL_VERSION = ai_inference.model_version()
 TECH_THRESHOLD = ai_inference.TECH_ISSUE_THRESHOLD
-AESTHETIC_THRESHOLD = ai_inference.AESTHETIC_EXCELLENT_THRESHOLD
 IMAGE_EXTENSIONS = tuple(sorted(ai_inference.IMAGE_EXTENSIONS))
 
 # 預設權重與模型端相同（美感 0.6／技術 0.4），批次工具與 XMP 星等也用這個值。
@@ -974,10 +973,6 @@ def write_xmp_ratings(folder, on_progress=None, only_paths=None, errors=None):
     return written, skipped, failed
 
 
-def is_raw_file(file_path):
-    return os.path.splitext(file_path)[1].lower() in ai_inference.RAW_EXTENSIONS
-
-
 def load_preview_image(file_path):
     """統一使用 ai_inference 的影像解碼流程。"""
     return ai_inference.load_image(file_path)
@@ -1002,7 +997,6 @@ class PhotoManagerV2(QWidget):
         self.current_folder = None
         self._folder_drive = None
         self.current_file_path = None
-        self.current_image_buffer = None
         self._group_count = 0
         self._pending_analysis_count = 0
         self._workflow_refresh_timer = QTimer(self)
@@ -1386,7 +1380,6 @@ class PhotoManagerV2(QWidget):
         self.current_folder = os.path.abspath(folder)
         self._folder_drive = no_trash_drive(self.current_folder)
         self.current_file_path = None
-        self.current_image_buffer = None
         self._set_idle()
 
         # 以目前硬碟內容同步這個資料夾；其他資料夾的 DB 紀錄不受影響。
@@ -1446,13 +1439,6 @@ class PhotoManagerV2(QWidget):
         item.setData(Qt.ItemDataRole.UserRole, path)
         self.show_photo(item)
 
-    @staticmethod
-    def clean_name(text):
-        for prefix in ("★ ", "△ ", "✓ ", "↻ "):
-            if text.startswith(prefix):
-                return text[len(prefix):]
-        return text
-
     def show_photo(self, item):
         file_path = item.data(Qt.ItemDataRole.UserRole)
         if not file_path:
@@ -1460,13 +1446,10 @@ class PhotoManagerV2(QWidget):
         file_name = os.path.basename(file_path)
 
         self.current_file_path = file_path
-        self.current_image_buffer = None
         self.file_label.setText(f"目前選取：{file_name}")
 
         try:
-            img = load_preview_image(file_path)
-            self.current_image_buffer = img
-            pixmap = numpy_to_pixmap(img)
+            pixmap = numpy_to_pixmap(load_preview_image(file_path))
             self.preview.setPhotoPixmap(pixmap)
         except Exception as e:
             self.preview.setText(f"照片預覽失敗：{e}")
@@ -1919,7 +1902,6 @@ class PhotoManagerV2(QWidget):
         if self.current_file_path and os.path.abspath(self.current_file_path) in {
                 os.path.abspath(p) for p in paths} and not os.path.exists(self.current_file_path):
             self.current_file_path = None
-            self.current_image_buffer = None
             self.preview.clearPhoto()
             self.preview.setText("請選擇照片")
             self.file_label.setText("目前尚未選取照片")
